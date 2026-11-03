@@ -67,14 +67,22 @@ Il `.deb` installa anche il lanciatore (`/usr/share/applications/GitPilot.deskto
 sudo apt install ./target/release/bundle/deb/GitPilot_0.1.0_amd64.deb
 ```
 
-### macOS (Apple Silicon) senza Mac: GitHub Actions
+### Build su GitHub Actions (macOS senza Mac, Linux)
 
-Il workflow `.github/workflows/build-macos.yml` compila su un runner macOS arm64 (M1 e successivi),
-esegue i test di `gitpilot-core` e produce `.app` + `.dmg`.
+Il workflow `.github/workflows/build.yml` esegue i test di `gitpilot-core` e compila in parallelo:
 
-- **Build manuale**: GitHub → Actions → *Build macOS* → *Run workflow*. Il `.dmg` si scarica dagli
+- **macOS arm64** (M1 e successivi) → `.app` + `.dmg`
+- **Linux x86_64** su Ubuntu 22.04 → `.AppImage` + `.deb` + `.rpm` (girano su Ubuntu 22.04+,
+  Debian 12+, Fedora 36+)
+
+Come lanciarlo:
+
+- **Build manuale**: GitHub → Actions → *Build* → *Run workflow*. I pacchetti si scaricano dagli
   artifact del run.
-- **Release**: `git tag v0.1.0 && git push --tags` → crea una Release in bozza con il `.dmg` allegato.
+- **Release**: `git tag v0.1.0 && git push --tags` → crea una Release in bozza con tutti i pacchetti.
+  Prima del tag aggiornare `version` in `src-tauri/tauri.conf.json` (dà il nome ai file).
+
+#### macOS: primo avvio
 
 L'app ha firma ad-hoc e non è notarizzata (niente Apple Developer ID): dopo averla trascinata in
 Applicazioni, al primo avvio:
