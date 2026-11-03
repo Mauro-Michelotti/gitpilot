@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Same artwork as app-icon.svg, placed on the macOS (Big Sur+) icon grid:
+       824x824 rounded square centred on a 1024 canvas, transparent margin. -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4f9dff"/>
+      <stop offset="1" stop-color="#3ecf8e"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(100 100) scale(13.7333) translate(-2 -2)">
+    <rect x="2" y="2" width="60" height="60" rx="13.5" fill="url(#g)"/>
+    <path d="M22 14v36M22 24c0 8 20 6 20 16" stroke="#fff" stroke-width="5" fill="none" stroke-linecap="round"/>
+    <circle cx="22" cy="14" r="5.5" fill="#fff"/>
+    <circle cx="22" cy="50" r="5.5" fill="#fff"/>
+    <circle cx="42" cy="42" r="5.5" fill="#fff"/>
+  </g>
+</svg>

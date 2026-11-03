@@ -1,0 +1,65 @@
+name: Build macOS
+
+# Manual run (Actions → Build macOS → Run workflow): the .dmg is attached to the run as artifact.
+# Tag push (git tag v0.1.0 && git push --tags): also creates a draft GitHub Release with the .dmg.
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Apple Silicon (M1/M2/M3/M4). macos-latest is an arm64 runner.
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+          # Intel Macs, if ever needed:
+          # - runner: macos-15-intel
+          #   target: x86_64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Test core on macOS
+        run: cargo test -p gitpilot-core
+
+      - name: Build app (.app + .dmg)
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: --target ${{ matrix.target }}
+          # Release only for tag pushes; manual runs just build.
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          releaseName: GitPilot ${{ github.ref_name }}
+          releaseBody: |
+            App non notarizzata (firma ad-hoc). Dopo averla copiata in Applicazioni:
+            `xattr -dr com.apple.quarantine /Applications/GitPilot.app`
+          releaseDraft: true
+          uploadWorkflowArtifacts: true
