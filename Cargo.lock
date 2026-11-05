@@ -1456,7 +1456,7 @@ dependencies = [
 
 [[package]]
 name = "gitpilot"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "gitpilot-core",
  "serde",
@@ -1469,7 +1469,7 @@ dependencies = [
 
 [[package]]
 name = "gitpilot-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "keyring",
  "reqwest",
