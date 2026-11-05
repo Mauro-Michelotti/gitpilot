@@ -110,6 +110,10 @@ Preferenze → Account. Permessi del token:
 
 Per GitHub Enterprise o GitLab self-hosted indica l'indirizzo del server (es. `gitlab.azienda.it`).
 
+## Changelog
+
+Le novità di ogni versione sono in [CHANGELOG.md](CHANGELOG.md).
+
 ## Problemi noti
 
 - Finestra bianca su Linux con alcuni driver GPU (tipico NVIDIA/Wayland): avviare con
