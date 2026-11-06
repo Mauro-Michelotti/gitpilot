@@ -327,6 +327,12 @@ export async function pull(path = active(), mode?: string) {
   handleOutcome(path, o);
 }
 
+/** Pull of a local branch: the current one uses the configured mode, any other one is only fast-forwarded. */
+export async function pullBranch(path: string, branch: string) {
+  if (ov(path)?.head.branch === branch) return pull(path);
+  await run(`Pull di ${branch}`, () => api.pullBranch(path, newOpId(), branch), { path, success: (m) => m });
+}
+
 export async function push(path = active(), opts: { branch?: string; force?: boolean } = {}) {
   const o = ov(path);
   const branchName = opts.branch ?? o?.head.branch;

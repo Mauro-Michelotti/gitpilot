@@ -195,6 +195,79 @@ pub fn pull(git: &Git, mode: &str, auth: &NetAuth, progress: &mut dyn FnMut(&str
     conflict_aware_progress(&g, &["pull", "--progress", "--no-edit", flag], "Pull completato", progress)
 }
 
+/// Update a local branch that is not checked out to its upstream, without switching to it.
+///
+/// Without a working copy only a fast-forward is possible: the branch ref is moved
+/// (atomically, from the expected old value) and HEAD, index and working tree are
+/// never touched. A diverged branch is left as it is, with an explanation.
+pub fn pull_branch(git: &Git, branch: &str, auth: &NetAuth, progress: &mut dyn FnMut(&str)) -> Result<String> {
+    let local_ref = format!("refs/heads/{branch}");
+    let local = commit_of(git, &local_ref).map_err(|_| Error::msg(format!("il branch {branch} non esiste")))?;
+    if current_branch(git).ok().as_deref() == Some(branch) {
+        return Err(Error::msg(format!("{branch} è il branch corrente: usa Pull dalla toolbar")));
+    }
+    if let Some(wt) = worktree_of(git, &local_ref)? {
+        return Err(Error::msg(format!("{branch} è in checkout nel worktree {wt}: aggiornalo da lì")));
+    }
+    // A rebase/bisect detaches HEAD but still owns its branch: moving it would break the operation.
+    let state = repo::repo_state(&repo::git_dir(git)?);
+    if state.kind == "rebase" || state.kind == "bisect" {
+        return Err(Error::msg(format!("{} in corso: completalo o annullalo prima del pull di {branch}", state.kind)));
+    }
+    let (Some(remote), Some(merge)) =
+        (config_get(git, &format!("branch.{branch}.remote")), config_get(git, &format!("branch.{branch}.merge")))
+    else {
+        return Err(Error::msg(format!("{branch} non ha un upstream: impostalo prima del pull")));
+    };
+    let short = merge.strip_prefix("refs/heads/").unwrap_or(&merge);
+    let upstream = if remote == "." { short.to_string() } else { format!("{remote}/{short}") };
+
+    // Also refreshes the remote-tracking branch, so ahead/behind stay correct.
+    networked(git, auth).run_progress(["fetch", "--progress", &remote, &merge], progress)?;
+    let target = commit_of(git, "FETCH_HEAD")?;
+
+    if target == local {
+        return Ok(format!("{branch} è già aggiornato"));
+    }
+    let behind = count_between(git, &local, &target)?;
+    let ahead = count_between(git, &target, &local)?;
+    if behind == 0 {
+        return Ok(format!("{branch} è avanti di {ahead} commit rispetto a {upstream}: niente da aggiornare"));
+    }
+    if ahead > 0 {
+        return Err(Error::msg(format!(
+            "{branch} è divergente da {upstream} ({ahead} commit avanti, {behind} indietro): \
+             fai checkout di {branch} per unire con merge o rebase"
+        )));
+    }
+    git.run(["update-ref", "-m", &format!("pull: fast-forward da {upstream}"), &local_ref, &target, &local])?;
+    Ok(format!("{branch} aggiornato in fast-forward a {upstream} ({behind} commit)"))
+}
+
+fn commit_of(git: &Git, rev: &str) -> Result<String> {
+    Ok(git.run(["rev-parse", "--verify", "--quiet", &format!("{rev}^{{commit}}")])?.trim().to_string())
+}
+
+/// Number of commits reachable from `to` but not from `from`.
+fn count_between(git: &Git, from: &str, to: &str) -> Result<u32> {
+    let n = git.run(["rev-list", "--count", &format!("{from}..{to}")])?;
+    n.trim().parse().map_err(|_| Error::msg(format!("rev-list: risposta inattesa {n:?}")))
+}
+
+/// Path of the worktree (this one included) that has `branch_ref` checked out, if any.
+fn worktree_of(git: &Git, branch_ref: &str) -> Result<Option<String>> {
+    let out = git.run(["worktree", "list", "--porcelain"])?;
+    let mut path = None;
+    for line in out.lines() {
+        if let Some(p) = line.strip_prefix("worktree ") {
+            path = Some(p.to_string());
+        } else if line.strip_prefix("branch ") == Some(branch_ref) {
+            return Ok(path);
+        }
+    }
+    Ok(None)
+}
+
 fn current_branch(git: &Git) -> Result<String> {
     let out = git.output(["symbolic-ref", "-q", "--short", "HEAD"])?;
     if !out.status.success() {
