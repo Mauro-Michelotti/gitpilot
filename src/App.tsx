@@ -178,7 +178,7 @@ export default function App() {
       const st = useStore.getState();
       if (e.key === "F5" || (mod && e.key.toLowerCase() === "r")) {
         e.preventDefault();
-        if (st.active) A.refresh(st.active, { full: true });
+        if (st.active) A.reload(st.active);
       } else if (mod && e.key.toLowerCase() === "o") {
         e.preventDefault();
         A.pickAndOpenRepo();

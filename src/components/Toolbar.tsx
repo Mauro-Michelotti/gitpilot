@@ -99,6 +99,7 @@ export function Toolbar({ tab }: { tab: RepoTab }) {
   const busy = useStore((s) => s.busy);
   const settings = useStore((s) => s.settings);
   const path = tab.path;
+  const refreshing = useStore((s) => !!s.refreshing[path]);
   const o = tab.overview;
   const head = o?.head;
   const disabled = !!busy || !o;
@@ -199,8 +200,13 @@ export function Toolbar({ tab }: { tab: RepoTab }) {
         <button className="icon-btn" title="Mostra nel file manager" onClick={() => revealItemInDir(path).catch(() => {})}>
           <FolderOpen size={17} />
         </button>
-        <button className="icon-btn" title={`Aggiorna (F5) — pull: ${pullLabel}`} onClick={() => A.refresh(path, { full: true })}>
-          <RefreshCw size={17} />
+        <button
+          className="icon-btn"
+          title={refreshing ? "Aggiornamento in corso…" : `Aggiorna (F5) — pull: ${pullLabel}`}
+          aria-busy={refreshing}
+          onClick={() => A.reload(path)}
+        >
+          <RefreshCw size={17} className={refreshing ? "spin" : undefined} />
         </button>
         <button className="icon-btn" title="Preferenze" onClick={() => useStore.getState().set({ modal: "preferences" })}>
           <Gear size={17} />
