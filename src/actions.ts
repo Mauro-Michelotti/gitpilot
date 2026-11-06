@@ -98,7 +98,8 @@ export async function boot() {
     await openRepo(p, { activate: false, quiet: true, persist: false });
   }
   const active = settings.activeTab && S().tabs.includes(settings.activeTab) ? settings.activeTab : (S().tabs[0] ?? null);
-  setActive(active);
+  // Restored tabs were just loaded by openRepo: no need to refresh the active one again.
+  activate(active);
 
   const win = getCurrentWindow();
   win.onFocusChanged(({ payload: focused }) => {
@@ -145,10 +146,15 @@ export function closeTab(path: string) {
   persistTabs();
 }
 
+/** Switch tab and reload the repository, so changes made outside GitPilot show up right away. */
 export function setActive(path: string | null) {
+  activate(path);
+  if (path) refresh(path, { full: true });
+}
+
+function activate(path: string | null) {
   S().set({ active: path });
   persistTabs();
-  if (path) refresh(path);
   getCurrentWindow()
     .setTitle(path ? `${S().repos[path]?.name ?? ""} — GitPilot` : "GitPilot")
     .catch(() => {});
@@ -188,19 +194,49 @@ function fixSelection(sel: Selection, graph: GraphResult, dirty: boolean, head: 
 }
 
 const inflight = new Map<string, Promise<void>>();
+/** Latest refresh started for each repository: an older one finishing later must not overwrite its result. */
+const refreshSeq = new Map<string, number>();
+/** Keep the refresh indicator visible at least this long, so even a fast refresh is noticeable. */
+const MIN_INDICATOR_MS = 500;
+
+function setRefreshing(path: string, on: boolean) {
+  const cur = S().refreshing;
+  if (!!cur[path] === on) return;
+  const next = { ...cur };
+  if (on) next[path] = true;
+  else delete next[path];
+  S().set({ refreshing: next });
+}
 
 export function refresh(path: string, opts: { full?: boolean } = {}): Promise<void> {
-  // Coalesce concurrent refreshes of the same repository.
+  // Coalesce concurrent refreshes of the same repository; a full refresh always starts a new one.
   const running = inflight.get(path);
   if (running && !opts.full) return running;
-  const p = doRefresh(path, opts).finally(() => inflight.delete(path));
+  const seq = (refreshSeq.get(path) ?? 0) + 1;
+  refreshSeq.set(path, seq);
+  const started = Date.now();
+  setRefreshing(path, true);
+  const p = doRefresh(path, opts, seq).finally(() => {
+    if (inflight.get(path) === p) inflight.delete(path);
+    if (refreshSeq.get(path) !== seq) return; // a newer refresh owns the indicator
+    const wait = MIN_INDICATOR_MS - (Date.now() - started);
+    if (wait <= 0) setRefreshing(path, false);
+    else setTimeout(() => refreshSeq.get(path) === seq && setRefreshing(path, false), wait);
+  });
   inflight.set(path, p);
   return p;
 }
 
-async function doRefresh(path: string, opts: { full?: boolean }) {
+/** Manual "Aggiorna" (toolbar button, F5, Ctrl/Cmd+R): reload the whole repo screen, pull requests included. */
+export function reload(path: string) {
+  loadPullRequests(path, true);
+  return refresh(path, { full: true });
+}
+
+async function doRefresh(path: string, opts: { full?: boolean }, seq: number) {
   const tab = S().repos[path];
   if (!tab) return;
+  const superseded = () => refreshSeq.get(path) !== seq;
   try {
     const [overview, status] = await Promise.all([api.overview(path), api.status(path)]);
     const dirty = status.staged.length + status.unstaged.length + status.conflicted.length > 0;
@@ -209,6 +245,7 @@ async function doRefresh(path: string, opts: { full?: boolean }) {
     if (opts.full || !graph || key !== tab.graphKey) {
       graph = await api.graph(path, tab.graphLimit, dirty);
     }
+    if (superseded()) return;
     const g = graph;
     S().patchRepo(path, (t) => ({
       overview,
@@ -227,7 +264,7 @@ async function doRefresh(path: string, opts: { full?: boolean }) {
           : t.view,
     }));
   } catch (e) {
-    S().patchRepo(path, { loading: false, error: errorText(e) });
+    if (!superseded()) S().patchRepo(path, { loading: false, error: errorText(e) });
   }
 }
 
