@@ -297,3 +297,67 @@ fn clone_push_pull_with_upstream() {
     assert_eq!(ov.head.branch.as_deref(), Some("topic"));
     assert_eq!(ov.head.upstream.as_deref(), Some("origin/topic"));
 }
+
+#[test]
+fn pull_branch_not_checked_out() {
+    let t = tempfile::tempdir().unwrap();
+    let origin_dir = t.path().join("origin.git");
+    Git::new(t.path()).run(["init", "--bare", "-b", "main", origin_dir.to_str().unwrap()]).unwrap();
+    let a = new_repo(&t.path().join("a"));
+    commit_file(&a, "x.txt", "1\n", "one");
+    ops::add_remote(&a, "origin", origin_dir.to_str().unwrap()).unwrap();
+    ops::push(&a, None, None, false, &vec![], &mut |_| {}).unwrap();
+    ops::create_branch(&a, "topic", None, true).unwrap();
+    commit_file(&a, "t.txt", "topic\n", "topic work");
+    ops::push(&a, None, None, false, &vec![], &mut |_| {}).unwrap();
+    ops::checkout(&a, "main").unwrap();
+
+    let dest = t.path().join("b");
+    ops::clone(origin_dir.to_str().unwrap(), &dest, &vec![], &mut |_| {}).unwrap();
+    let b = Git::new(&dest);
+    b.run(["config", "user.name", "B"]).unwrap();
+    b.run(["config", "user.email", "b@example.com"]).unwrap();
+    b.run(["config", "commit.gpgsign", "false"]).unwrap();
+    ops::checkout_remote(&b, "origin/topic").unwrap();
+    let rev = |g: &Git, r: &str| g.run(["rev-parse", r]).unwrap().trim().to_string();
+    let pull = |br: &str| ops::pull_branch(&b, br, &vec![], &mut |_| {});
+
+    // Behind only: fast-forward without leaving topic or touching the working tree.
+    commit_file(&a, "x.txt", "2\n", "two");
+    commit_file(&a, "x.txt", "3\n", "three");
+    ops::push(&a, None, None, false, &vec![], &mut |_| {}).unwrap();
+    let msg = pull("main").unwrap();
+    assert!(msg.contains("fast-forward") && msg.contains("2 commit"), "{msg}");
+    assert_eq!(rev(&b, "main"), rev(&a, "main"));
+    assert_eq!(branch(&b), "topic");
+    assert_eq!(std::fs::read_to_string(dest.join("x.txt")).unwrap(), "1\n");
+    let ov = repo::overview(&b, &[]).unwrap();
+    let main = ov.locals.iter().find(|l| l.name == "main").unwrap();
+    assert_eq!((main.ahead, main.behind), (0, 0));
+
+    assert!(pull("main").unwrap().contains("già aggiornato"));
+    assert!(pull("topic").unwrap_err().to_string().contains("branch corrente"));
+    ops::create_branch(&b, "solo-locale", None, false).unwrap();
+    assert!(pull("solo-locale").unwrap_err().to_string().contains("upstream"));
+
+    // Checked out in another worktree: git would leave that worktree inconsistent.
+    let wt = t.path().join("wt");
+    b.run(["worktree", "add", wt.to_str().unwrap(), "main"]).unwrap();
+    assert!(pull("main").unwrap_err().to_string().contains("worktree"));
+    b.run(["worktree", "remove", wt.to_str().unwrap()]).unwrap();
+
+    // Ahead only: nothing to do.
+    ops::checkout(&b, "main").unwrap();
+    commit_file(&b, "y.txt", "local\n", "local work");
+    ops::checkout(&b, "topic").unwrap();
+    assert!(pull("main").unwrap().contains("avanti di 1"));
+
+    // Diverged: refused, branch unchanged.
+    commit_file(&a, "x.txt", "4\n", "four");
+    ops::push(&a, None, None, false, &vec![], &mut |_| {}).unwrap();
+    let before = rev(&b, "main");
+    let err = pull("main").unwrap_err().to_string();
+    assert!(err.contains("divergente") && err.contains("1 commit avanti, 1 indietro"), "{err}");
+    assert_eq!(rev(&b, "main"), before);
+    assert_eq!(branch(&b), "topic");
+}

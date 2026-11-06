@@ -15,7 +15,8 @@ GPG, LFS e `includeIf` funzionano esattamente come da terminale.
 - **Working copy**: stage/unstage per file o per **blocco** (hunk), scarta, commit con sommario/descrizione,
   amend; diff unificato o affiancato.
 - **Branch, tag, stash, remote**: crea, rinomina, elimina (anche sul remote), upstream, push/pull/fetch
-  (pull fast-forward / solo ff / rebase, force push con `--force-with-lease`).
+  (pull fast-forward / solo ff / rebase, force push con `--force-with-lease`); pull in fast-forward
+  anche dei branch locali non in checkout, senza cambiare branch.
 - **Merge, rebase, cherry-pick, revert, reset** (soft/mixed/hard) da menu contestuale.
 - **Conflitti**: banner di stato con Continua/Salta/Annulla, editor a due lati + base con risultato
   modificabile, "tutto nostro/loro", conflitti di eliminazione.

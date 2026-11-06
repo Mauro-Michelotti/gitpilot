@@ -77,7 +77,13 @@ export function localBranchMenu(path: string, o: RepoOverview, name: string): Me
     sep,
     { label: "Push", icon: <Upload size={I} />, action: () => A.push(path, { branch: name }) },
     { label: "Force push", icon: <Upload size={I} />, action: () => A.push(path, { branch: name, force: true }), danger: true },
-    ...(isHead ? [{ label: "Pull", icon: <ArrowDownToLine size={I} />, action: () => A.pull(path) }] : []),
+    {
+      label: isHead ? "Pull" : "Pull (solo fast-forward)",
+      icon: <ArrowDownToLine size={I} />,
+      action: () => A.pullBranch(path, name),
+      // Without a working copy the branch can only follow its upstream.
+      disabled: !isHead && (!b?.upstream || b.gone),
+    },
     { label: "Imposta upstream…", icon: <Link size={I} />, action: () => A.setUpstream(path, name) },
     ...(hasProvider
       ? [{ label: o.provider!.kind === "gitlab" ? "Crea merge request" : "Crea pull request", icon: <GitPullRequestCreate size={I} />, action: () => A.createPullRequest(path, name) }]

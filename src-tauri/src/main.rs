@@ -113,6 +113,7 @@ fn main() {
             commands::commit,
             commands::fetch,
             commands::pull,
+            commands::pull_branch,
             commands::push,
             commands::checkout,
             commands::checkout_remote,

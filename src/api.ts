@@ -50,6 +50,7 @@ export const api = {
 
   fetch: (path: string, opId: string, remote: string | null = null) => call<void>("fetch", { path, opId, remote }),
   pull: (path: string, opId: string, mode: string) => call<OpOutcome>("pull", { path, opId, mode }),
+  pullBranch: (path: string, opId: string, branch: string) => call<string>("pull_branch", { path, opId, branch }),
   push: (path: string, opId: string, branch: string | null, remote: string | null, force: boolean) =>
     call<string>("push", { path, opId, branch, remote, force }),
 
