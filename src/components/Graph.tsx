@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Cloud, Laptop, Pencil, Tag, CircleDot } from "lucide-react";
 import * as A from "../actions";
 import { commitMenu, localBranchMenu, remoteBranchMenu, tagMenu } from "../menus";
+import { useT } from "../i18n";
 import type { RepoTab } from "../store";
 import type { CommitRow, GraphLine, RefLabel, RepoOverview, StatusResult } from "../types";
 import { fullDate, initials, laneColor, personColor, relativeTime } from "../util";
@@ -79,6 +80,8 @@ const Row = memo(function Row({
   path: string;
   showAvatars: boolean;
 }) {
+  // Subscribes the memoized row to the language, so texts and relative dates follow it.
+  const t = useT();
   const g = row.graph;
   const cx = x(g.col);
   const cy = ROW_H / 2;
@@ -170,9 +173,9 @@ const Row = memo(function Row({
             <span className="wip-label">// WIP</span>
             {counts && (
               <span className="wip-counts">
-                {counts.conflicts > 0 && <span className="badge badge-danger">{counts.conflicts} conflitti</span>}
-                {counts.unstaged > 0 && <span className="badge">{counts.unstaged} modificati</span>}
-                {counts.staged > 0 && <span className="badge badge-ok">{counts.staged} in stage</span>}
+                {counts.conflicts > 0 && <span className="badge badge-danger">{t("graph.conflicts", { count: counts.conflicts })}</span>}
+                {counts.unstaged > 0 && <span className="badge">{t("graph.modified", { count: counts.unstaged })}</span>}
+                {counts.staged > 0 && <span className="badge badge-ok">{t("graph.staged", { count: counts.staged })}</span>}
               </span>
             )}
           </>
@@ -192,6 +195,7 @@ const Row = memo(function Row({
 });
 
 export function Graph({ tab }: { tab: RepoTab }) {
+  const t = useT();
   const graph = tab.graph;
   const ref = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -242,11 +246,11 @@ export function Graph({ tab }: { tab: RepoTab }) {
       <div className="graph-head">
         <div className="gcol-refs">Branch / tag</div>
         <div className="gcol-graph" style={{ width }}>
-          Grafo
+          {t("graph.colGraph")}
         </div>
-        <div className="gcol-msg">Messaggio</div>
-        <div className="gcol-author">Autore</div>
-        <div className="gcol-date">Data</div>
+        <div className="gcol-msg">{t("graph.colMessage")}</div>
+        <div className="gcol-author">{t("graph.colAuthor")}</div>
+        <div className="gcol-date">{t("graph.colDate")}</div>
         <div className="gcol-sha">SHA</div>
       </div>
       <div
@@ -274,15 +278,15 @@ export function Graph({ tab }: { tab: RepoTab }) {
           {graph?.truncated && (
             <div className="graph-more" style={{ top: rows.length * ROW_H }}>
               <button className="btn" onClick={() => A.loadMoreCommits(tab.path)}>
-                Mostra altri commit
+                {t("graph.more")}
               </button>
             </div>
           )}
         </div>
         {!tab.loading && rows.length === 0 && (
           <div className="empty">
-            <p>Nessun commit ancora.</p>
-            <p className="muted">Aggiungi dei file e crea il primo commit dal pannello a destra.</p>
+            <p>{t("graph.empty")}</p>
+            <p className="muted">{t("graph.emptyHint")}</p>
           </div>
         )}
       </div>

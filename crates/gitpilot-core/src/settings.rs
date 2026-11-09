@@ -27,6 +27,8 @@ pub struct Settings {
     pub graph_limit: u32,
     pub clone_dir: Option<String>,
     pub author_avatars: bool,
+    /// system | it | en
+    pub language: String,
 }
 
 impl Default for Settings {
@@ -40,6 +42,7 @@ impl Default for Settings {
             graph_limit: 2000,
             clone_dir: None,
             author_avatars: true,
+            language: "system".into(),
         }
     }
 }

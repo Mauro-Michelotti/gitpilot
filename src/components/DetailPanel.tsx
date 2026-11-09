@@ -2,19 +2,33 @@ import { useEffect, useRef, useState } from "react";
 import { Check, Copy, ExternalLink, FileText, GitCommitHorizontal, Minus, Plus, TriangleAlert, Undo2 } from "lucide-react";
 import * as A from "../actions";
 import { api, errorText } from "../api";
+import { useT, type MsgKey } from "../i18n";
 import { useStore, type RepoTab } from "../store";
 import type { CommitDetails, FileChange } from "../types";
-import { basename, CONFLICT_LABEL, dirname, fullDate, initials, personColor, STATUS_LABEL } from "../util";
+import { basename, dirname, fullDate, initials, personColor } from "../util";
+import { conflictKindLabel } from "./ConflictView";
 
 export function DetailPanel({ tab }: { tab: RepoTab }) {
   if (tab.selection?.kind === "commit") return <CommitPanel tab={tab} hash={tab.selection.hash} />;
   return <WipPanel tab={tab} />;
 }
 
+const STATUS_KEY: Record<string, MsgKey> = {
+  M: "detail.status.M",
+  A: "detail.status.A",
+  D: "detail.status.D",
+  R: "detail.status.R",
+  C: "detail.status.C",
+  T: "detail.status.T",
+  U: "detail.status.U",
+  "?": "detail.status.untracked",
+};
+
 function StatusBadge({ status }: { status: string }) {
+  const t = useT();
   const s = status === "?" ? "A" : status;
   return (
-    <span className={`fstatus fstatus-${s}`} title={STATUS_LABEL[status] ?? status}>
+    <span className={`fstatus fstatus-${s}`} title={STATUS_KEY[status] ? t(STATUS_KEY[status]) : status}>
       {s}
     </span>
   );
@@ -35,6 +49,7 @@ function FileName({ path, oldPath }: { path: string; oldPath?: string | null }) 
 const drafts = new Map<string, { summary: string; desc: string }>();
 
 function WipPanel({ tab }: { tab: RepoTab }) {
+  const t = useT();
   const path = tab.path;
   const st = tab.status;
   const o = tab.overview;
@@ -85,7 +100,7 @@ function WipPanel({ tab }: { tab: RepoTab }) {
   const doCommit = async () => {
     if (!canCommit) return;
     const message = summary.trim() + (desc.trim() ? "\n\n" + desc.trim() : "");
-    const r = await A.run("Commit", () => api.commit(path, message, amend), { path, success: (h) => `Commit ${h} creato` });
+    const r = await A.run("Commit", () => api.commit(path, message, amend), { path, success: (h) => t("detail.commitCreated", { hash: h }) });
     if (r !== undefined) {
       setSummary("");
       setDesc("");
@@ -112,10 +127,10 @@ function WipPanel({ tab }: { tab: RepoTab }) {
     <div className="panel wip-panel">
       <div className="panel-head">
         <div className="panel-title">
-          {total ? `${total} file modificati` : "Nessuna modifica"} {branch && <span className="muted">su {branch}</span>}
+          {total ? t("detail.filesModified", { count: total }) : t("detail.noChanges")} {branch && <span className="muted">{t("detail.onBranch", { branch })}</span>}
         </div>
         {total > 0 && (
-          <button className="icon-btn danger" title="Scarta tutte le modifiche" onClick={() => A.discardAll(path)}>
+          <button className="icon-btn danger" title={t("detail.discardAll")} onClick={() => A.discardAll(path)}>
             <Undo2 size={15} />
           </button>
         )}
@@ -125,23 +140,23 @@ function WipPanel({ tab }: { tab: RepoTab }) {
         <div className="file-group">
           <div className="file-group-head conflict">
             <TriangleAlert size={14} />
-            <span>Conflitti ({conflicted.length})</span>
+            <span>{t("detail.conflicts", { count: conflicted.length })}</span>
           </div>
           {conflicted.map((c) => (
             <div
               key={c.path}
               className={`file-row${view.kind === "conflict" && view.file === c.path ? " active" : ""}`}
               onClick={() => useStore.getState().patchRepo(path, { view: { kind: "conflict", file: c.path } })}
-              title={CONFLICT_LABEL[c.kind] ?? c.kind}
+              title={conflictKindLabel(c.kind)}
             >
               <span className="fstatus fstatus-U">!</span>
               <FileName path={c.path} />
               <span className="file-actions">
-                <button className="btn btn-xs" onClick={(e) => { e.stopPropagation(); A.run("Risolvi", () => api.conflictTake(path, c.path, "ours"), { path }); }}>
-                  Nostro
+                <button className="btn btn-xs" onClick={(e) => { e.stopPropagation(); A.run(t("detail.resolveBusy"), () => api.conflictTake(path, c.path, "ours"), { path }); }}>
+                  {t("detail.ours")}
                 </button>
-                <button className="btn btn-xs" onClick={(e) => { e.stopPropagation(); A.run("Risolvi", () => api.conflictTake(path, c.path, "theirs"), { path }); }}>
-                  Loro
+                <button className="btn btn-xs" onClick={(e) => { e.stopPropagation(); A.run(t("detail.resolveBusy"), () => api.conflictTake(path, c.path, "theirs"), { path }); }}>
+                  {t("detail.theirs")}
                 </button>
               </span>
             </div>
@@ -151,10 +166,10 @@ function WipPanel({ tab }: { tab: RepoTab }) {
 
       <div className="file-group grow-1">
         <div className="file-group-head">
-          <span>Non in stage ({unstaged.length})</span>
+          <span>{t("detail.unstaged", { count: unstaged.length })}</span>
           {unstaged.length > 0 && (
             <button className="btn btn-xs btn-ok" onClick={() => A.run("Stage", () => api.stageAll(path), { path })}>
-              Stage di tutto
+              {t("detail.stageAll")}
             </button>
           )}
         </div>
@@ -164,7 +179,7 @@ function WipPanel({ tab }: { tab: RepoTab }) {
               <StatusBadge status={f.status} />
               <FileName path={f.path} />
               <span className="file-actions">
-                <button className="icon-btn danger" title="Scarta" onClick={(e) => { e.stopPropagation(); A.discardFiles(path, [f]); }}>
+                <button className="icon-btn danger" title={t("detail.discard")} onClick={(e) => { e.stopPropagation(); A.discardFiles(path, [f]); }}>
                   <Undo2 size={13} />
                 </button>
                 <button className="btn btn-xs btn-ok" onClick={(e) => { e.stopPropagation(); stage([f]); }}>
@@ -178,10 +193,10 @@ function WipPanel({ tab }: { tab: RepoTab }) {
 
       <div className="file-group grow-1">
         <div className="file-group-head">
-          <span>In stage ({staged.length})</span>
+          <span>{t("detail.staged", { count: staged.length })}</span>
           {staged.length > 0 && (
             <button className="btn btn-xs" onClick={() => A.run("Unstage", () => api.unstageAll(path), { path })}>
-              Togli tutto
+              {t("detail.unstageAll")}
             </button>
           )}
         </div>
@@ -206,7 +221,7 @@ function WipPanel({ tab }: { tab: RepoTab }) {
             ref={summaryRef}
             value={summary}
             onChange={(e) => setSummary(e.target.value)}
-            placeholder="Sommario del commit"
+            placeholder={t("detail.summary")}
             onKeyDown={(e) => e.key === "Enter" && (e.ctrlKey || e.metaKey) && doCommit()}
           />
           <span className={`counter${summary.length > 72 ? " over" : ""}`}>{72 - summary.length}</span>
@@ -214,17 +229,23 @@ function WipPanel({ tab }: { tab: RepoTab }) {
         <textarea
           value={desc}
           onChange={(e) => setDesc(e.target.value)}
-          placeholder="Descrizione (facoltativa)"
+          placeholder={t("detail.description")}
           rows={4}
           onKeyDown={(e) => e.key === "Enter" && (e.ctrlKey || e.metaKey) && doCommit()}
         />
         <label className="check small">
           <input type="checkbox" checked={amend} onChange={(e) => onAmend(e.target.checked)} disabled={!o?.head.hash} />
-          <span>Modifica l'ultimo commit (amend)</span>
+          <span>{t("detail.amend")}</span>
         </label>
-        <button className="btn btn-primary btn-block" disabled={!canCommit} onClick={doCommit} title="Ctrl+Invio">
+        <button className="btn btn-primary btn-block" disabled={!canCommit} onClick={doCommit} title={t("detail.commitShortcut")}>
           <GitCommitHorizontal size={15} />
-          {amend ? "Amend del commit" : staged.length ? `Commit di ${staged.length} file${branch ? " su " + branch : ""}` : "Metti in stage dei file per il commit"}
+          {amend
+            ? t("detail.amendCommit")
+            : staged.length
+              ? branch
+                ? t("detail.commitFilesOn", { count: staged.length, branch })
+                : t("detail.commitFiles", { count: staged.length })
+              : t("detail.stageToCommit")}
         </button>
       </div>
     </div>
@@ -234,6 +255,7 @@ function WipPanel({ tab }: { tab: RepoTab }) {
 // ---------------------------------------------------------------- commit
 
 function CommitPanel({ tab, hash }: { tab: RepoTab; hash: string }) {
+  const t = useT();
   const path = tab.path;
   const [d, setD] = useState<CommitDetails | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -251,7 +273,7 @@ function CommitPanel({ tab, hash }: { tab: RepoTab; hash: string }) {
   }, [path, hash]);
 
   if (err) return <div className="panel"><div className="empty error-text">{err}</div></div>;
-  if (!d || d.hash !== hash) return <div className="panel"><div className="empty muted">Caricamento…</div></div>;
+  if (!d || d.hash !== hash) return <div className="panel"><div className="empty muted">{t("detail.loading")}</div></div>;
 
   const o = tab.overview;
   const view = tab.view;
@@ -262,13 +284,13 @@ function CommitPanel({ tab, hash }: { tab: RepoTab; hash: string }) {
   return (
     <div className="panel commit-panel">
       <div className="panel-head">
-        <button className="sha-btn mono" title="Copia SHA completo" onClick={() => A.copy(d.hash)}>
+        <button className="sha-btn mono" title={t("detail.copySha")} onClick={() => A.copy(d.hash)}>
           <GitCommitHorizontal size={14} /> {d.hash.slice(0, 10)} <Copy size={12} />
         </button>
         {webBase && (
           <button
             className="icon-btn"
-            title="Apri sul web"
+            title={t("detail.openWeb")}
             onClick={() => A.openExternal(`${webBase.webUrl}/${webBase.kind === "gitlab" ? "-/commit" : "commit"}/${d.hash}`)}
           >
             <ExternalLink size={14} />
@@ -296,17 +318,17 @@ function CommitPanel({ tab, hash }: { tab: RepoTab; hash: string }) {
             <div>
               <strong>{d.author}</strong> <span className="muted">&lt;{d.email}&gt;</span>
             </div>
-            <div className="muted small">scritto il {fullDate(d.authorTime)}</div>
+            <div className="muted small">{t("detail.authored", { date: fullDate(d.authorTime) })}</div>
             {!sameCommitter && (
               <div className="muted small">
-                commit di {d.committer} il {fullDate(d.commitTime)}
+                {t("detail.committedBy", { name: d.committer, date: fullDate(d.commitTime) })}
               </div>
             )}
           </div>
         </div>
         {d.parents.length > 0 && (
           <div className="parents small">
-            <span className="muted">{d.parents.length > 1 ? "Genitori" : "Genitore"}:</span>
+            <span className="muted">{t("detail.parents", { count: d.parents.length })}:</span>
             {d.parents.map((p) => (
               <button key={p} className="link mono" onClick={() => A.selectCommit(path, p)}>
                 {p.slice(0, 7)}
@@ -318,7 +340,10 @@ function CommitPanel({ tab, hash }: { tab: RepoTab; hash: string }) {
       <div className="file-group grow-1">
         <div className="file-group-head">
           <FileText size={14} />
-          <span>{d.files.length} file cambiati{d.parents.length > 1 ? " (rispetto al primo genitore)" : ""}</span>
+          <span>
+            {t("detail.filesChanged", { count: d.files.length })}
+            {d.parents.length > 1 ? t("detail.vsFirstParent") : ""}
+          </span>
         </div>
         <div className="file-list">
           {d.files.map((f) => {

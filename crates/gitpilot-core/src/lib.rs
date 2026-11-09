@@ -7,6 +7,7 @@ pub mod error;
 pub mod git;
 pub mod gitflow;
 pub mod graph;
+pub mod i18n;
 pub mod model;
 pub mod ops;
 pub mod providers;

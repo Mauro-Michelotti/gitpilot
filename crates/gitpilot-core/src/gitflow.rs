@@ -10,6 +10,7 @@ use crate::git::Git;
 use crate::model::{GitFlowConfig, OpOutcome};
 use crate::ops::{self, NetAuth};
 use crate::repo;
+use crate::tr;
 
 pub const KINDS: [&str; 5] = ["feature", "bugfix", "release", "hotfix", "support"];
 
@@ -75,16 +76,19 @@ fn ensure_local(git: &Git, name: &str) -> Result<()> {
         git.run(["branch", "--track", name, &remote])?;
         return Ok(());
     }
-    Err(Error::msg(format!("il branch '{name}' non esiste")))
+    Err(Error::msg(tr!("il branch '{name}' non esiste", "branch '{name}' does not exist")))
 }
 
 pub fn init(git: &Git, cfg: &GitFlowConfig) -> Result<()> {
     for b in [&cfg.master, &cfg.develop] {
         git.run(["check-ref-format", "--branch", b])
-            .map_err(|_| Error::msg(format!("nome branch non valido: {b}")))?;
+            .map_err(|_| Error::msg(tr!("nome branch non valido: {b}", "invalid branch name: {b}")))?;
     }
     if cfg.master == cfg.develop {
-        return Err(Error::msg("produzione e sviluppo devono essere branch diversi"));
+        return Err(Error::msg(tr!(
+            "produzione e sviluppo devono essere branch diversi",
+            "production and development must be different branches"
+        )));
     }
     if !repo::has_commits(git) {
         git.run(["symbolic-ref", "HEAD", &format!("refs/heads/{}", cfg.master)])?;
@@ -118,7 +122,7 @@ pub fn init(git: &Git, cfg: &GitFlowConfig) -> Result<()> {
 }
 
 fn config(git: &Git) -> Result<GitFlowConfig> {
-    read_config(git)?.ok_or_else(|| Error::msg("GitFlow non è inizializzato in questo repository"))
+    read_config(git)?.ok_or_else(|| Error::msg(tr!("GitFlow non è inizializzato in questo repository", "GitFlow is not initialized in this repository")))
 }
 
 fn prefix<'a>(cfg: &'a GitFlowConfig, kind: &str) -> Result<&'a str> {
@@ -128,7 +132,7 @@ fn prefix<'a>(cfg: &'a GitFlowConfig, kind: &str) -> Result<&'a str> {
         "release" => &cfg.release,
         "hotfix" => &cfg.hotfix,
         "support" => &cfg.support,
-        _ => return Err(Error::msg(format!("tipo GitFlow sconosciuto: {kind}"))),
+        _ => return Err(Error::msg(tr!("tipo GitFlow sconosciuto: {kind}", "unknown GitFlow type: {kind}"))),
     })
 }
 
@@ -137,11 +141,11 @@ pub fn start(git: &Git, kind: &str, name: &str, base: Option<&str>) -> Result<St
     let cfg = config(git)?;
     let name = name.trim();
     if name.is_empty() {
-        return Err(Error::msg("specifica un nome"));
+        return Err(Error::msg(tr!("specifica un nome", "specify a name")));
     }
     let branch = format!("{}{}", prefix(&cfg, kind)?, name);
     if local_exists(git, &branch) {
-        return Err(Error::msg(format!("il branch '{branch}' esiste già")));
+        return Err(Error::msg(tr!("il branch '{branch}' esiste già", "branch '{branch}' already exists")));
     }
     let default_base = if matches!(kind, "hotfix" | "support") { &cfg.master } else { &cfg.develop };
     let base = base.filter(|b| !b.trim().is_empty()).unwrap_or(default_base.as_str());
@@ -172,12 +176,19 @@ fn yes() -> bool {
 fn require_clean(git: &Git) -> Result<()> {
     let state = repo::repo_state(&repo::git_dir(git)?);
     if state.kind != "none" {
-        return Err(Error::msg(format!("completa o annulla prima l'operazione in corso ({})", state.kind)));
+        return Err(Error::msg(tr!(
+            "completa o annulla prima l'operazione in corso ({})",
+            "complete or abort the operation in progress first ({})",
+            state.kind
+        )));
     }
     let st = repo::status(git)?;
     let dirty = !st.staged.is_empty() || !st.conflicted.is_empty() || st.unstaged.iter().any(|f| f.status != "?");
     if dirty {
-        return Err(Error::msg("ci sono modifiche non committate: fai commit o stash prima di concludere"));
+        return Err(Error::msg(tr!(
+            "ci sono modifiche non committate: fai commit o stash prima di concludere",
+            "there are uncommitted changes: commit or stash them before finishing"
+        )));
     }
     Ok(())
 }
@@ -192,8 +203,9 @@ fn merge_into(git: &Git, branch: &str, target: &str) -> Result<Option<OpOutcome>
     git.run(["switch", target])?;
     let out = ops::merge(git, branch, "no-ff")?;
     if out.conflicts {
-        return Ok(Some(OpOutcome::conflicts(format!(
-            "Conflitti nel merge di '{branch}' in '{target}'. Risolvili, completa il merge e ripeti Concludi."
+        return Ok(Some(OpOutcome::conflicts(tr!(
+            "Conflitti nel merge di '{branch}' in '{target}'. Risolvili, completa il merge e ripeti Concludi.",
+            "Conflicts merging '{branch}' into '{target}'. Resolve them, complete the merge and run Finish again."
         ))));
     }
     Ok(None)
@@ -203,7 +215,7 @@ pub fn finish(git: &Git, kind: &str, name: &str, opts: &FinishOptions, auth: &Ne
     let cfg = config(git)?;
     let branch = format!("{}{}", prefix(&cfg, kind)?, name);
     if !local_exists(git, &branch) {
-        return Err(Error::msg(format!("il branch '{branch}' non esiste")));
+        return Err(Error::msg(tr!("il branch '{branch}' non esiste", "branch '{branch}' does not exist")));
     }
     require_clean(git)?;
 
@@ -232,8 +244,8 @@ pub fn finish(git: &Git, kind: &str, name: &str, opts: &FinishOptions, auth: &Ne
             }
             tag = Some(tag_name);
         }
-        "support" => return Err(Error::msg("i branch support non si concludono")),
-        _ => return Err(Error::msg(format!("tipo GitFlow sconosciuto: {kind}"))),
+        "support" => return Err(Error::msg(tr!("i branch support non si concludono", "support branches cannot be finished"))),
+        _ => return Err(Error::msg(tr!("tipo GitFlow sconosciuto: {kind}", "unknown GitFlow type: {kind}"))),
     }
 
     git.run(["switch", &cfg.develop])?;
@@ -266,12 +278,12 @@ pub fn finish(git: &Git, kind: &str, name: &str, opts: &FinishOptions, auth: &Ne
         "release" => "Release",
         _ => "Hotfix",
     };
-    let mut msg = format!("{what} '{name}' conclusa");
+    let mut msg = tr!("{what} '{name}' conclusa", "{what} '{name}' finished");
     if let Some(t) = tag {
-        msg.push_str(&format!(", tag {t} creato"));
+        msg.push_str(&tr!(", tag {t} creato", ", tag {t} created"));
     }
     if opts.push {
-        msg.push_str(", push su origin eseguito");
+        msg.push_str(&tr!(", push su origin eseguito", ", pushed to origin"));
     }
     Ok(OpOutcome::ok(msg))
 }

@@ -93,6 +93,7 @@ fn main() {
             commands::app_info,
             commands::settings_get,
             commands::settings_save,
+            commands::set_language,
             commands::repo_open,
             commands::repo_init,
             commands::repo_clone,

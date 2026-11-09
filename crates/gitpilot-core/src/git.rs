@@ -81,7 +81,9 @@ impl Git {
             .env("GIT_EDITOR", "true")
             .env("GIT_SEQUENCE_EDITOR", "true")
             .env("GIT_PAGER", "cat")
-            .env("GIT_MERGE_AUTOEDIT", "no");
+            .env("GIT_MERGE_AUTOEDIT", "no")
+            // git's own messages (shown in errors) follow the UI language.
+            .env("LANGUAGE", crate::i18n::git_language());
         if !self.config.is_empty() {
             cmd.env("GIT_CONFIG_COUNT", self.config.len().to_string());
             for (i, (k, v)) in self.config.iter().enumerate() {
@@ -109,7 +111,10 @@ impl Git {
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
         cmd.output().map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
-                Error::msg("eseguibile git non trovato: installa git o imposta GITPILOT_GIT")
+                Error::msg(crate::tr!(
+                    "eseguibile git non trovato: installa git o imposta GITPILOT_GIT",
+                    "git executable not found: install git or set GITPILOT_GIT"
+                ))
             } else {
                 Error::Io(e)
             }
@@ -237,7 +242,7 @@ fn git_error(args: &[std::ffi::OsString], code: Option<i32>, stderr: &[u8], stdo
         message = String::from_utf8_lossy(stdout).trim().to_string();
     }
     if message.is_empty() {
-        message = format!("terminato con codice {}", code.map_or("?".into(), |c| c.to_string()));
+        message = crate::tr!("terminato con codice {}", "exited with code {}", code.map_or("?".into(), |c| c.to_string()));
     }
     Error::Git { cmd, code, message }
 }

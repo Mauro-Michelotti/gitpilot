@@ -18,6 +18,7 @@ import {
   Workflow,
 } from "lucide-react";
 import * as A from "../actions";
+import { useT } from "../i18n";
 import { localBranchMenu, prMenu, remoteBranchMenu, remoteMenu, stashMenu, tagMenu } from "../menus";
 import { useStore, type RepoTab } from "../store";
 import type { BranchInfo, GitFlowKind, RemoteBranch } from "../types";
@@ -114,6 +115,7 @@ const match = (q: string, s: string) => !q || s.toLowerCase().includes(q.toLower
 
 export function Sidebar({ tab }: { tab: RepoTab }) {
   const [q, setQ] = useState("");
+  const t = useT();
   const o = tab.overview;
   const path = tab.path;
   const selectedHash = tab.selection?.kind === "commit" ? tab.selection.hash : null;
@@ -121,7 +123,7 @@ export function Sidebar({ tab }: { tab: RepoTab }) {
   if (!o) return <aside className="sidebar" />;
 
   const locals = o.locals.filter((b) => match(q, b.name));
-  const tags = o.tags.filter((t) => match(q, t.name));
+  const tags = o.tags.filter((tg) => match(q, tg.name));
   const stashes = o.stashes.filter((s) => match(q, s.message));
   const prs = (tab.prs ?? []).filter((p) => match(q, p.title) || match(q, p.sourceBranch));
   const provider = o.provider && o.provider.kind !== "unknown" ? o.provider : null;
@@ -134,7 +136,7 @@ export function Sidebar({ tab }: { tab: RepoTab }) {
       onClick={() => A.selectCommit(path, b.hash)}
       onDoubleClick={() => !b.isHead && A.checkoutBranch(path, b.name)}
       onContextMenu={(e) => A.showMenu(e, localBranchMenu(path, o, b.name))}
-      title={b.upstream ? `${b.name} → ${b.upstream}${b.gone ? " (eliminato sul remote)" : ""}` : `${b.name} (solo locale)`}
+      title={b.upstream ? `${b.name} → ${b.upstream}${b.gone ? t("sidebar.gone") : ""}` : t("sidebar.localOnly", { name: b.name })}
     >
       <Laptop size={13} className={b.isHead ? "accent" : "muted"} />
       <span className="sb-label">{n.name}</span>
@@ -178,16 +180,16 @@ export function Sidebar({ tab }: { tab: RepoTab }) {
     <aside className="sidebar">
       <div className="sb-search">
         <Search size={14} className="muted" />
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filtra branch, tag, PR…" spellCheck={false} />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("sidebar.filter")} spellCheck={false} />
       </div>
       <div className="sb-scroll">
         <Section
           id="local"
-          title="Locali"
+          title={t("sidebar.locals")}
           icon={<Laptop size={14} />}
           count={o.locals.length}
           actions={
-            <button className="icon-btn" title="Nuovo branch" onClick={() => A.createBranch(path)}>
+            <button className="icon-btn" title={t("sidebar.newBranch")} onClick={() => A.createBranch(path)}>
               <Plus size={14} />
             </button>
           }
@@ -197,16 +199,16 @@ export function Sidebar({ tab }: { tab: RepoTab }) {
 
         <Section
           id="remote"
-          title="Remoti"
+          title={t("sidebar.remotes")}
           icon={<Cloud size={14} />}
           count={o.remotes.length}
           actions={
-            <button className="icon-btn" title="Aggiungi remote" onClick={() => A.addRemote(path)}>
+            <button className="icon-btn" title={t("sidebar.addRemote")} onClick={() => A.addRemote(path)}>
               <Plus size={14} />
             </button>
           }
         >
-          {o.remotes.length === 0 && <div className="sb-empty">Nessun remote. Aggiungine uno per pubblicare.</div>}
+          {o.remotes.length === 0 && <div className="sb-empty">{t("sidebar.noRemotes")}</div>}
           {o.remotes.map((r) => {
             const branches = r.branches.filter((b) => match(q, b.full));
             return (
@@ -225,10 +227,10 @@ export function Sidebar({ tab }: { tab: RepoTab }) {
             count={tab.prs?.length}
             actions={
               <>
-                <button className="icon-btn" title="Aggiorna" onClick={() => A.loadPullRequests(path)}>
+                <button className="icon-btn" title={t("sidebar.refresh")} onClick={() => A.loadPullRequests(path)}>
                   <RefreshCw size={13} className={tab.prLoading ? "spin" : undefined} />
                 </button>
-                <button className="icon-btn" title={isGh ? "Nuova pull request" : "Nuova merge request"} onClick={() => A.createPullRequest(path)}>
+                <button className="icon-btn" title={isGh ? t("sidebar.newPr") : t("sidebar.newMr")} onClick={() => A.createPullRequest(path)}>
                   <Plus size={14} />
                 </button>
               </>
@@ -236,14 +238,14 @@ export function Sidebar({ tab }: { tab: RepoTab }) {
           >
             {!provider.accountId ? (
               <div className="sb-empty">
-                Nessun account per {provider.host}.{" "}
-                <a onClick={() => useStore.getState().set({ modal: "preferences" })}>Collega {isGh ? "GitHub" : "GitLab"}</a>
-                {accounts.length > 0 && " (l'host non corrisponde agli account configurati)"}
+                {t("sidebar.noAccount", { host: provider.host })}{" "}
+                <a onClick={() => useStore.getState().set({ modal: "preferences" })}>{t("sidebar.connect", { provider: isGh ? "GitHub" : "GitLab" })}</a>
+                {accounts.length > 0 && t("sidebar.hostMismatch")}
               </div>
             ) : tab.prError ? (
               <div className="sb-empty error-text">{tab.prError}</div>
             ) : prs.length === 0 ? (
-              <div className="sb-empty">{tab.prLoading ? "Caricamento…" : "Nessuna richiesta aperta"}</div>
+              <div className="sb-empty">{tab.prLoading ? t("sidebar.loading") : t("sidebar.noRequests")}</div>
             ) : (
               prs.map((p) => (
                 <div
@@ -251,7 +253,7 @@ export function Sidebar({ tab }: { tab: RepoTab }) {
                   className="sb-item sb-pr"
                   onDoubleClick={() => A.openExternal(p.webUrl)}
                   onContextMenu={(e) => A.showMenu(e, prMenu(path, o, p))}
-                  title={`${p.title}\n${p.sourceBranch} → ${p.targetBranch}\ndi ${p.author}${p.updatedAt ? ", aggiornata " + relativeTime(Date.parse(p.updatedAt) / 1000) : ""}`}
+                  title={`${p.title}\n${p.sourceBranch} → ${p.targetBranch}\n${t("sidebar.prBy", { author: p.author })}${p.updatedAt ? t("sidebar.prUpdated", { when: relativeTime(Date.parse(p.updatedAt) / 1000) }) : ""}`}
                 >
                   <ProviderIcon kind={provider.kind} size={13} />
                   <span className="sb-label">
@@ -272,8 +274,8 @@ export function Sidebar({ tab }: { tab: RepoTab }) {
         >
           {!gf ? (
             <div className="sb-empty">
-              Git Flow non inizializzato.{" "}
-              <a onClick={() => A.gitflowInit(path)}>Inizializza</a>
+              {t("sidebar.flowNotInit")}{" "}
+              <a onClick={() => A.gitflowInit(path)}>{t("sidebar.flowInit")}</a>
             </div>
           ) : (
             flowKinds.map((k) => {
@@ -283,7 +285,7 @@ export function Sidebar({ tab }: { tab: RepoTab }) {
                   <div className="sb-item sb-flow-head" style={{ paddingLeft: 12 }}>
                     <Flag size={13} className="muted" />
                     <span className="sb-label">{flowLabel[k]}</span>
-                    <button className="icon-btn" title={`Inizia ${k}`} onClick={() => A.gitflowStart(path, k)}>
+                    <button className="icon-btn" title={t("sidebar.flowStart", { kind: k })} onClick={() => A.gitflowStart(path, k)}>
                       <Plus size={13} />
                     </button>
                   </div>
@@ -300,7 +302,7 @@ export function Sidebar({ tab }: { tab: RepoTab }) {
                       >
                         <span className="sb-label">{name}</span>
                         <button className="btn btn-xs" onClick={(e) => { e.stopPropagation(); A.gitflowFinish(path, k, name); }}>
-                          Concludi
+                          {t("sidebar.flowFinish")}
                         </button>
                       </div>
                     );
@@ -311,23 +313,23 @@ export function Sidebar({ tab }: { tab: RepoTab }) {
           )}
         </Section>
 
-        <Section id="tags" title="Tag" icon={<Tag size={14} />} count={o.tags.length} defaultOpen={false}>
-          {tags.map((t) => (
+        <Section id="tags" title={t("sidebar.tags")} icon={<Tag size={14} />} count={o.tags.length} defaultOpen={false}>
+          {tags.map((tg) => (
             <div
-              key={t.name}
-              className={`sb-item${selectedHash === t.hash ? " selected" : ""}`}
+              key={tg.name}
+              className={`sb-item${selectedHash === tg.hash ? " selected" : ""}`}
               style={{ paddingLeft: 12 }}
-              onClick={() => A.selectCommit(path, t.hash)}
-              onContextMenu={(e) => A.showMenu(e, tagMenu(path, o, t.name))}
+              onClick={() => A.selectCommit(path, tg.hash)}
+              onContextMenu={(e) => A.showMenu(e, tagMenu(path, o, tg.name))}
             >
               <Tag size={13} className="muted" />
-              <span className="sb-label">{t.name}</span>
+              <span className="sb-label">{tg.name}</span>
             </div>
           ))}
         </Section>
 
-        <Section id="stash" title="Stash" icon={<Archive size={14} />} count={o.stashes.length}>
-          {stashes.length === 0 && <div className="sb-empty">Nessuno stash</div>}
+        <Section id="stash" title={t("sidebar.stash")} icon={<Archive size={14} />} count={o.stashes.length}>
+          {stashes.length === 0 && <div className="sb-empty">{t("sidebar.noStash")}</div>}
           {stashes.map((s) => (
             <div
               key={s.hash}
@@ -335,7 +337,7 @@ export function Sidebar({ tab }: { tab: RepoTab }) {
               style={{ paddingLeft: 12 }}
               onDoubleClick={() => A.stashApply(path, s.index, false)}
               onContextMenu={(e) => A.showMenu(e, stashMenu(path, s.index))}
-              title={`stash@{${s.index}} — ${relativeTime(s.time)}\nDoppio clic per applicare`}
+              title={`stash@{${s.index}} — ${relativeTime(s.time)}\n${t("sidebar.stashHint")}`}
             >
               <Archive size={13} className="muted" />
               <span className="sb-label">{s.message}</span>

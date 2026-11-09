@@ -27,13 +27,15 @@ GPG, LFS e `includeIf` funzionano esattamente come da terminale.
 - **GitHub / GitLab**: account con personal access token (salvato nel portachiavi di sistema:
   GNOME Keyring/KWallet, Portachiavi macOS), lista PR/MR del repo, creazione PR/MR, clone dai tuoi repo.
   Il token viene usato anche per autenticare pull/push via HTTPS.
+- **Lingua**: italiano o inglese (Preferenze → Lingua, oppure come il sistema), con cambio immediato;
+  seguono la lingua anche i messaggi di GitPilot e quelli di git.
 
 ## Struttura
 
 ```
 crates/gitpilot-core/   logica (git, grafo, diff, conflitti, GitFlow, provider) — testabile da sola
 src-tauri/              shell Tauri: comandi esposti alla UI
-src/                    UI React (actions.ts = logica UI, components/ = viste)
+src/                    UI React (actions.ts = logica UI, components/ = viste, locales/ = testi it/en)
 ```
 
 ## Requisiti

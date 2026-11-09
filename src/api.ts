@@ -25,6 +25,7 @@ export const api = {
   appInfo: () => call<AppInfo>("app_info"),
   settingsGet: () => call<Settings>("settings_get"),
   settingsSave: (settings: Settings) => call<void>("settings_save", { settings }),
+  setLanguage: (language: "it" | "en") => call<void>("set_language", { language }),
 
   repoOpen: (path: string) => call<string>("repo_open", { path }),
   repoInit: (path: string, defaultBranch: string) => call<string>("repo_init", { path, defaultBranch }),
