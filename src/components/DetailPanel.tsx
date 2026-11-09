@@ -281,8 +281,9 @@ function CommitPanel({ tab, hash }: { tab: RepoTab; hash: string }) {
         {refs.length > 0 && (
           <div className="commit-refs">
             {refs.map((r) => (
-              <span key={r.kind + r.name} className={`chip chip-${r.kind}${r.current ? " current" : ""}`}>
-                {r.current && <Check size={11} />} {r.name}
+              <span key={r.kind + r.name} className={`chip chip-${r.kind}${r.current ? " current" : ""}`} title={r.name}>
+                {r.current && <Check size={11} />}
+                <span className="chip-label">{r.name}</span>
               </span>
             ))}
           </div>
