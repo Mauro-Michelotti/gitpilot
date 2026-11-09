@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { api, errorText } from "./api";
+import { resolveLang, setLang, t } from "./i18n";
 import { emptyTab, useStore, type MenuItem, type PromptSpec, type PromptValues, type Selection } from "./store";
 import type { GitFlowKind, GraphResult, OpOutcome, RepoOverview, Settings } from "./types";
 
@@ -47,7 +48,7 @@ export async function confirm(
 }
 
 export async function inform(title: string, message: React.ReactNode) {
-  await prompt({ title, message, fields: [], confirmLabel: "Chiudi", alert: true });
+  await prompt({ title, message, fields: [], confirmLabel: t("common.close"), alert: true });
 }
 
 export function showMenu(e: React.MouseEvent, items: MenuItem[]) {
@@ -58,8 +59,8 @@ export function showMenu(e: React.MouseEvent, items: MenuItem[]) {
 
 export function copy(text: string) {
   navigator.clipboard.writeText(text).then(
-    () => toast("info", `Copiato: ${text.length > 60 ? text.slice(0, 60) + "…" : text}`),
-    () => toast("error", "Impossibile copiare negli appunti"),
+    () => toast("info", t("actions.copied", { text: text.length > 60 ? text.slice(0, 60) + "…" : text })),
+    () => toast("error", t("actions.copyFailed")),
   );
 }
 
@@ -75,9 +76,18 @@ export async function saveSettings(patch: Partial<Settings>) {
   const cur = S().settings;
   if (!cur) return;
   const next = { ...cur, ...patch };
+  // Before the store update, so components re-render already in the new language.
+  if (next.language !== cur.language) applyLanguage(next.language);
   S().set({ settings: next });
   applyTheme(next.theme);
   await api.settingsSave(next).catch((e) => toast("error", errorText(e)));
+}
+
+/** Resolve the language setting ("system" included) for the UI, the backend messages and git. */
+export function applyLanguage(setting: Settings["language"] | undefined) {
+  const lang = resolveLang(setting);
+  setLang(lang);
+  api.setLanguage(lang).catch(() => {});
 }
 
 export function applyTheme(theme: Settings["theme"]) {
@@ -96,6 +106,7 @@ export async function boot() {
   booted = true;
   listen<{ opId: string; line: string }>("git-progress", (e) => S().set({ progress: e.payload.line }));
   const [info, settings, accounts] = await Promise.all([api.appInfo(), api.settingsGet(), api.accountsList()]);
+  applyLanguage(settings.language);
   S().set({ info, settings, accounts });
   applyTheme(settings.theme);
   for (const p of settings.openTabs) {
@@ -170,7 +181,7 @@ function persistTabs() {
 }
 
 export async function pickAndOpenRepo() {
-  const dir = await openDialog({ directory: true, title: "Apri repository" });
+  const dir = await openDialog({ directory: true, title: t("actions.openRepo.title") });
   if (typeof dir === "string") await openRepo(dir);
 }
 
@@ -312,7 +323,7 @@ function handleOutcome(path: string, o: OpOutcome | undefined) {
 
 function active(): string {
   const p = S().active;
-  if (!p) throw new Error("nessun repository aperto");
+  if (!p) throw new Error(t("actions.noRepoOpen"));
   return p;
 }
 
@@ -321,7 +332,7 @@ const ov = (path: string) => S().repos[path]?.overview ?? null;
 // ---------------------------------------------------------------- remotes
 
 export async function fetchAll(path = active()) {
-  await run("Fetch", () => api.fetch(path, newOpId()), { path, success: "Fetch completato" });
+  await run("Fetch", () => api.fetch(path, newOpId()), { path, success: t("actions.fetch.done") });
   loadPullRequests(path, true);
 }
 
@@ -334,45 +345,45 @@ export async function pull(path = active(), mode?: string) {
 /** Pull of a local branch: the current one uses the configured mode, any other one is only fast-forwarded. */
 export async function pullBranch(path: string, branch: string) {
   if (ov(path)?.head.branch === branch) return pull(path);
-  await run(`Pull di ${branch}`, () => api.pullBranch(path, newOpId(), branch), { path, success: (m) => m });
+  await run(t("actions.pullBranch.busy", { branch }), () => api.pullBranch(path, newOpId(), branch), { path, success: (m) => m });
 }
 
 /** Fast-forward every local branch with an upstream; never switches branch or opens conflicts. */
 export async function pullAllBranches(path = active()) {
-  const r = await run("Pull di tutti i branch", () => api.pullAllBranches(path, newOpId()), { path });
+  const r = await run(t("actions.pullAll.title"), () => api.pullAllBranches(path, newOpId()), { path });
   if (!r) return;
   const { updated, upToDate, skipped } = r;
   const list = (names: string[], max = 5) =>
-    names.length > max ? `${names.slice(0, max).join(", ")} e altri ${names.length - max}` : names.join(", ");
+    names.length > max ? t("actions.list.andMore", { names: names.slice(0, max).join(", "), count: names.length - max }) : names.join(", ");
   const updatedText = list(updated.map((u) => `${u.name} (+${u.commits})`));
   if (!updated.length && !upToDate.length && !skipped.length) {
-    return toast("info", "Nessun branch locale con upstream da aggiornare");
+    return toast("info", t("actions.pullAll.none"));
   }
   if (!skipped.length) {
-    if (!updated.length) return toast("success", `Tutti i branch sono già aggiornati (${upToDate.length})`);
-    const rest = upToDate.length ? `; ${upToDate.length} già aggiornati` : "";
-    return toast("success", `Aggiornati ${updated.length} branch: ${updatedText}${rest}`);
+    if (!updated.length) return toast("success", t("actions.pullAll.allUpToDate", { count: upToDate.length }));
+    const rest = upToDate.length ? t("actions.pullAll.restUpToDate", { count: upToDate.length }) : "";
+    return toast("success", t("actions.pullAll.updated", { count: updated.length, list: updatedText, rest }));
   }
   const lines = [
-    updated.length ? `Aggiornati (${updated.length}): ${updatedText}` : "Nessun branch aggiornato.",
-    ...(upToDate.length ? [`Già aggiornati (${upToDate.length}): ${list(upToDate)}`] : []),
+    updated.length ? t("actions.pullAll.updatedList", { count: updated.length, list: updatedText }) : t("actions.pullAll.noneUpdated"),
+    ...(upToDate.length ? [t("actions.pullAll.upToDateList", { count: upToDate.length, list: list(upToDate) })] : []),
     "",
-    `Saltati, senza modifiche (${skipped.length}):`,
+    t("actions.pullAll.skippedList", { count: skipped.length }),
     ...skipped.map((s) => `• ${s.name}: ${s.reason}`),
   ];
-  await inform("Pull di tutti i branch", lines.join("\n"));
+  await inform(t("actions.pullAll.title"), lines.join("\n"));
 }
 
 export async function push(path = active(), opts: { branch?: string; force?: boolean } = {}) {
   const o = ov(path);
   const branchName = opts.branch ?? o?.head.branch;
-  if (!branchName) return toast("error", "HEAD è staccato: crea un branch prima del push");
+  if (!branchName) return toast("error", t("actions.push.detached"));
   const info = o?.locals.find((b) => b.name === branchName);
   let remote: string | null = null;
   if (!info?.upstream && o && o.remotes.length > 1) {
     const v = await prompt({
-      title: `Pubblica ${branchName}`,
-      message: "Il branch non ha un upstream. Scegli il remote su cui pubblicarlo.",
+      title: t("actions.push.publishTitle", { branch: branchName }),
+      message: t("actions.push.chooseRemote"),
       fields: [
         {
           name: "remote",
@@ -390,7 +401,7 @@ export async function push(path = active(), opts: { branch?: string; force?: boo
   if (opts.force) {
     const ok = await confirm(
       "Force push",
-      `Sovrascrivere ${branchName} sul remote con la tua versione locale? Viene usato --force-with-lease: il push fallisce se qualcun altro ha pubblicato commit che non hai ancora scaricato.`,
+      t("actions.push.forceConfirm", { branch: branchName }),
       { confirmLabel: "Force push", danger: true },
     );
     if (!ok) return;
@@ -403,111 +414,128 @@ export async function push(path = active(), opts: { branch?: string; force?: boo
 
 export async function addRemote(path = active()) {
   const v = await prompt({
-    title: "Aggiungi remote",
+    title: t("actions.remote.addTitle"),
     fields: [
-      { name: "name", label: "Nome", value: ov(path)?.remotes.length ? "upstream" : "origin", required: true },
+      { name: "name", label: t("actions.field.name"), value: ov(path)?.remotes.length ? "upstream" : "origin", required: true },
       { name: "url", label: "URL", placeholder: "git@github.com:owner/repo.git", required: true, mono: true },
     ],
-    confirmLabel: "Aggiungi",
+    confirmLabel: t("actions.add"),
   });
   if (!v) return;
-  await run("Aggiungi remote", () => api.remoteAdd(path, String(v.name), String(v.url)), {
+  await run(t("actions.remote.addTitle"), () => api.remoteAdd(path, String(v.name), String(v.url)), {
     path,
-    success: `Remote ${v.name} aggiunto`,
+    success: t("actions.remote.added", { name: String(v.name) }),
   });
   fetchAll(path);
 }
 
 export async function removeRemote(path: string, name: string) {
-  if (!(await confirm("Rimuovi remote", `Rimuovere il remote "${name}" e i suoi branch remoti locali?`, { danger: true, confirmLabel: "Rimuovi" })))
+  if (!(await confirm(t("actions.remote.removeTitle"), t("actions.remote.removeConfirm", { name }), { danger: true, confirmLabel: t("common.remove") })))
     return;
-  await run("Rimuovi remote", () => api.remoteRemove(path, name), { path, success: `Remote ${name} rimosso` });
+  await run(t("actions.remote.removeTitle"), () => api.remoteRemove(path, name), { path, success: t("actions.remote.removed", { name }) });
 }
 
 // ---------------------------------------------------------------- branches
 
 export async function createBranch(path = active(), start?: string, startLabel?: string) {
   const v = await prompt({
-    title: "Nuovo branch",
-    message: start ? `Punto di partenza: ${startLabel ?? start.slice(0, 8)}` : `Dal commit corrente (${ov(path)?.head.branch ?? "HEAD"})`,
+    title: t("actions.branch.newTitle"),
+    message: start
+      ? t("actions.branch.startPoint", { start: startLabel ?? start.slice(0, 8) })
+      : t("actions.branch.fromCurrent", { branch: ov(path)?.head.branch ?? "HEAD" }),
     fields: [
-      { name: "name", label: "Nome del branch", placeholder: "feature/nuova-funzione", required: true, mono: true },
-      { name: "checkout", label: "Esegui checkout del nuovo branch", type: "checkbox", value: true },
+      { name: "name", label: t("actions.branch.nameLabel"), placeholder: t("actions.branch.namePlaceholder"), required: true, mono: true },
+      { name: "checkout", label: t("actions.branch.checkoutNew"), type: "checkbox", value: true },
     ],
-    confirmLabel: "Crea branch",
+    confirmLabel: t("actions.branch.create"),
   });
   if (!v) return;
-  await run("Crea branch", () => api.branchCreate(path, String(v.name), start ?? null, !!v.checkout), {
+  await run(t("actions.branch.create"), () => api.branchCreate(path, String(v.name), start ?? null, !!v.checkout), {
     path,
-    success: `Branch ${v.name} creato`,
+    success: t("actions.branch.created", { name: String(v.name) }),
   });
 }
 
 export async function checkoutBranch(path: string, name: string) {
-  await run(`Checkout ${name}`, () => api.checkout(path, name), { path, success: `Ora sei su ${name}` });
+  await run(`Checkout ${name}`, () => api.checkout(path, name), { path, success: t("actions.checkout.nowOn", { name }) });
 }
 
 export async function checkoutRemote(path: string, full: string) {
-  await run(`Checkout ${full}`, () => api.checkoutRemote(path, full), { path, success: (n) => `Ora sei su ${n}` });
+  await run(`Checkout ${full}`, () => api.checkoutRemote(path, full), { path, success: (n) => t("actions.checkout.nowOn", { name: n }) });
 }
 
 export async function checkoutCommit(path: string, hash: string) {
   const ok = await confirm(
-    "Checkout del commit",
-    `Passare al commit ${hash.slice(0, 8)} in modalità "HEAD staccato"? I nuovi commit non apparterranno a nessun branch finché non ne crei uno.`,
+    t("actions.checkoutCommit.title"),
+    t("actions.checkoutCommit.confirm", { hash: hash.slice(0, 8) }),
     { confirmLabel: "Checkout" },
   );
   if (!ok) return;
-  await run("Checkout", () => api.checkoutCommit(path, hash), { path, success: `HEAD su ${hash.slice(0, 8)}` });
+  await run("Checkout", () => api.checkoutCommit(path, hash), { path, success: t("actions.checkoutCommit.done", { hash: hash.slice(0, 8) }) });
 }
 
 export async function deleteBranch(path: string, name: string) {
   const b = ov(path)?.locals.find((x) => x.name === name);
   const remoteName = b?.upstream && !b.gone ? b.upstream : null;
   const fields: PromptSpec["fields"] = [
-    { name: "force", label: "Forza l'eliminazione anche se non è stato unito", type: "checkbox", value: false },
+    { name: "force", label: t("actions.branch.forceDelete"), type: "checkbox", value: false },
   ];
-  if (remoteName) fields.push({ name: "remote", label: `Elimina anche ${remoteName} sul remote`, type: "checkbox", value: false });
-  const v = await prompt({ title: `Elimina ${name}`, message: "Il branch locale verrà eliminato.", fields, confirmLabel: "Elimina", danger: true });
+  if (remoteName) fields.push({ name: "remote", label: t("actions.branch.deleteRemoteToo", { remote: remoteName }), type: "checkbox", value: false });
+  const v = await prompt({
+    title: t("actions.branch.deleteTitle", { name }),
+    message: t("actions.branch.deleteMessage"),
+    fields,
+    confirmLabel: t("common.delete"),
+    danger: true,
+  });
   if (!v) return;
-  await run("Elimina branch", async () => {
+  await run(t("actions.branch.deleteBusy"), async () => {
     await api.branchDelete(path, name, !!v.force);
     if (v.remote && remoteName) {
       const [remote, ...rest] = remoteName.split("/");
       await api.branchDeleteRemote(path, remote, rest.join("/"));
     }
-  }, { path, success: `Branch ${name} eliminato` });
+  }, { path, success: t("actions.branch.deleted", { name }) });
 }
 
 export async function deleteRemoteBranch(path: string, full: string) {
   const [remote, ...rest] = full.split("/");
   const name = rest.join("/");
-  if (!(await confirm("Elimina branch remoto", `Eliminare ${name} dal remote ${remote}? L'operazione riguarda tutti i collaboratori.`, { danger: true, confirmLabel: "Elimina" })))
+  if (!(await confirm(t("actions.remoteBranch.deleteTitle"), t("actions.remoteBranch.deleteConfirm", { name, remote }), { danger: true, confirmLabel: t("common.delete") })))
     return;
-  await run("Elimina branch remoto", () => api.branchDeleteRemote(path, remote, name), { path, success: `${full} eliminato` });
+  await run(t("actions.remoteBranch.deleteTitle"), () => api.branchDeleteRemote(path, remote, name), {
+    path,
+    success: t("actions.remoteBranch.deleted", { name: full }),
+  });
 }
 
 export async function renameBranch(path: string, name: string) {
   const v = await prompt({
-    title: `Rinomina ${name}`,
-    fields: [{ name: "name", label: "Nuovo nome", value: name, required: true, mono: true }],
-    confirmLabel: "Rinomina",
+    title: t("actions.branch.renameTitle", { name }),
+    fields: [{ name: "name", label: t("actions.branch.newName"), value: name, required: true, mono: true }],
+    confirmLabel: t("actions.rename"),
   });
   if (!v || v.name === name) return;
-  await run("Rinomina branch", () => api.branchRename(path, name, String(v.name)), { path, success: `Rinominato in ${v.name}` });
+  await run(t("actions.branch.renameBusy"), () => api.branchRename(path, name, String(v.name)), {
+    path,
+    success: t("actions.branch.renamed", { name: String(v.name) }),
+  });
 }
 
 export async function setUpstream(path: string, branch: string) {
   const o = ov(path);
   const options = (o?.remotes ?? []).flatMap((r) => r.branches.map((b) => ({ value: b.full, label: b.full })));
-  if (!options.length) return toast("error", "Nessun branch remoto disponibile: esegui prima un fetch");
+  if (!options.length) return toast("error", t("actions.upstream.noRemoteBranches"));
   const v = await prompt({
-    title: `Upstream di ${branch}`,
-    fields: [{ name: "up", label: "Branch remoto", type: "select", options, value: options.find((x) => x.value.endsWith("/" + branch))?.value ?? options[0].value }],
-    confirmLabel: "Imposta",
+    title: t("actions.upstream.title", { branch }),
+    fields: [{ name: "up", label: t("actions.upstream.remoteBranch"), type: "select", options, value: options.find((x) => x.value.endsWith("/" + branch))?.value ?? options[0].value }],
+    confirmLabel: t("actions.upstream.set"),
   });
   if (!v) return;
-  await run("Imposta upstream", () => api.branchSetUpstream(path, branch, String(v.up)), { path, success: `Upstream impostato su ${v.up}` });
+  await run(t("actions.upstream.busy"), () => api.branchSetUpstream(path, branch, String(v.up)), {
+    path,
+    success: t("actions.upstream.done", { upstream: String(v.up) }),
+  });
 }
 
 // ---------------------------------------------------------------- merge / rebase / history
@@ -515,17 +543,17 @@ export async function setUpstream(path: string, branch: string) {
 export async function merge(path: string, target: string, mode: "ff" | "no-ff" | "squash" = "ff") {
   const cur = ov(path)?.head.branch ?? "HEAD";
   const o = await run(`Merge ${target}`, () => api.merge(path, target, mode), { path });
-  if (o && !o.conflicts && mode !== "squash") o.message = `${target} unito in ${cur}`;
+  if (o && !o.conflicts && mode !== "squash") o.message = t("actions.merge.done", { target, branch: cur });
   handleOutcome(path, o);
 }
 
 export async function rebase(path: string, onto: string) {
   const cur = ov(path)?.head.branch ?? "HEAD";
-  const ok = await confirm("Rebase", `Riscrivere i commit di ${cur} sopra ${onto}? Se ${cur} è già pubblicato servirà un force push.`, {
+  const ok = await confirm("Rebase", t("actions.rebase.confirm", { branch: cur, onto }), {
     confirmLabel: "Rebase",
   });
   if (!ok) return;
-  handleOutcome(path, await run(`Rebase su ${onto}`, () => api.rebase(path, onto), { path }));
+  handleOutcome(path, await run(t("actions.rebase.busy", { onto }), () => api.rebase(path, onto), { path }));
 }
 
 export async function cherryPick(path: string, hash: string) {
@@ -538,113 +566,110 @@ export async function revertCommit(path: string, hash: string) {
 
 export async function resetTo(path: string, hash: string, mode: "soft" | "mixed" | "hard") {
   const branch = ov(path)?.head.branch ?? "HEAD";
-  const descr = {
-    soft: "mantiene tutte le modifiche nello stage",
-    mixed: "mantiene le modifiche nella working copy, fuori dallo stage",
-    hard: "ELIMINA tutte le modifiche non committate e i commit successivi",
-  }[mode];
-  const ok = await confirm(`Reset ${mode}`, `Spostare ${branch} su ${hash.slice(0, 8)}? Il reset ${mode} ${descr}.`, {
+  const descr = t(`actions.reset.${mode}`);
+  const ok = await confirm(`Reset ${mode}`, t("actions.reset.confirm", { branch, hash: hash.slice(0, 8), mode, descr }), {
     confirmLabel: `Reset ${mode}`,
     danger: mode === "hard",
   });
   if (!ok) return;
-  await run("Reset", () => api.reset(path, hash, mode), { path, success: `${branch} spostato su ${hash.slice(0, 8)}` });
+  await run("Reset", () => api.reset(path, hash, mode), { path, success: t("actions.reset.done", { branch, hash: hash.slice(0, 8) }) });
 }
 
 export async function continueOp(path = active()) {
-  handleOutcome(path, await run("Continua", () => api.opContinue(path), { path }));
+  handleOutcome(path, await run(t("actions.op.continue"), () => api.opContinue(path), { path }));
 }
 
 export async function abortOp(path = active()) {
   const kind = ov(path)?.state.kind ?? "";
-  if (!(await confirm("Annulla operazione", `Annullare ${kind} e tornare allo stato precedente?`, { danger: true, confirmLabel: "Annulla operazione" })))
-    return;
-  await run("Annulla", () => api.opAbort(path), { path, success: "Operazione annullata" });
+  const title = t("actions.op.abortTitle");
+  if (!(await confirm(title, t("actions.op.abortConfirm", { kind }), { danger: true, confirmLabel: title }))) return;
+  await run(t("actions.op.abortBusy"), () => api.opAbort(path), { path, success: t("actions.op.aborted") });
 }
 
 export async function skipOp(path = active()) {
-  handleOutcome(path, await run("Salta", () => api.opSkip(path), { path }));
+  handleOutcome(path, await run(t("actions.op.skip"), () => api.opSkip(path), { path }));
 }
 
 // ---------------------------------------------------------------- tags
 
 export async function createTag(path: string, target: string, label?: string) {
   const v = await prompt({
-    title: "Nuovo tag",
-    message: `Su ${label ?? target.slice(0, 8)}`,
+    title: t("actions.tag.newTitle"),
+    message: t("actions.tag.on", { target: label ?? target.slice(0, 8) }),
     fields: [
-      { name: "name", label: "Nome", placeholder: "v1.2.0", required: true, mono: true },
-      { name: "message", label: "Messaggio (tag annotato, facoltativo)", type: "textarea" },
-      { name: "push", label: "Push del tag su origin", type: "checkbox", value: false },
+      { name: "name", label: t("actions.field.name"), placeholder: "v1.2.0", required: true, mono: true },
+      { name: "message", label: t("actions.tag.message"), type: "textarea" },
+      { name: "push", label: t("actions.tag.pushToOrigin"), type: "checkbox", value: false },
     ],
-    confirmLabel: "Crea tag",
+    confirmLabel: t("actions.tag.create"),
   });
   if (!v) return;
   const name = String(v.name);
-  await run("Crea tag", async () => {
+  await run(t("actions.tag.create"), async () => {
     await api.tagCreate(path, name, target, String(v.message || "") || null);
     if (v.push) await api.tagPush(path, ov(path)?.provider?.remote ?? "origin", name);
-  }, { path, success: `Tag ${name} creato` });
+  }, { path, success: t("actions.tag.created", { name }) });
 }
 
 export async function deleteTag(path: string, name: string) {
   const remotes = ov(path)?.remotes ?? [];
   const fields: PromptSpec["fields"] = remotes.length
-    ? [{ name: "remote", label: `Elimina anche da ${remotes[0].name}`, type: "checkbox", value: false }]
+    ? [{ name: "remote", label: t("actions.tag.deleteRemoteToo", { remote: remotes[0].name }), type: "checkbox", value: false }]
     : [];
-  const v = await prompt({ title: `Elimina tag ${name}`, fields, confirmLabel: "Elimina", danger: true });
+  const v = await prompt({ title: t("actions.tag.deleteTitle", { name }), fields, confirmLabel: t("common.delete"), danger: true });
   if (!v) return;
-  await run("Elimina tag", async () => {
+  await run(t("actions.tag.deleteBusy"), async () => {
     await api.tagDelete(path, name);
     if (v.remote) await api.tagDeleteRemote(path, remotes[0].name, name);
-  }, { path, success: `Tag ${name} eliminato` });
+  }, { path, success: t("actions.tag.deleted", { name }) });
 }
 
 export async function pushTag(path: string, name: string) {
   const remote = ov(path)?.provider?.remote ?? ov(path)?.remotes[0]?.name ?? "origin";
-  await run("Push tag", () => api.tagPush(path, remote, name), { path, success: `Tag ${name} pubblicato su ${remote}` });
+  await run("Push tag", () => api.tagPush(path, remote, name), { path, success: t("actions.tag.pushed", { name, remote }) });
 }
 
 // ---------------------------------------------------------------- stash
 
 export async function stashSave(path = active()) {
   const v = await prompt({
-    title: "Stash delle modifiche",
+    title: t("actions.stash.title"),
     fields: [
-      { name: "message", label: "Descrizione (facoltativa)", placeholder: "lavoro in corso" },
-      { name: "untracked", label: "Includi i file non tracciati", type: "checkbox", value: true },
+      { name: "message", label: t("actions.stash.description"), placeholder: t("actions.stash.placeholder") },
+      { name: "untracked", label: t("actions.stash.untracked"), type: "checkbox", value: true },
     ],
     confirmLabel: "Stash",
   });
   if (!v) return;
-  await run("Stash", () => api.stashSave(path, String(v.message ?? ""), !!v.untracked), { path, success: "Modifiche messe da parte" });
+  await run("Stash", () => api.stashSave(path, String(v.message ?? ""), !!v.untracked), { path, success: t("actions.stash.saved") });
 }
 
 export async function stashApply(path: string, index: number, pop: boolean) {
-  handleOutcome(path, await run(pop ? "Pop stash" : "Applica stash", () => api.stashApply(path, index, pop), { path }));
+  handleOutcome(path, await run(pop ? "Pop stash" : t("actions.stash.apply"), () => api.stashApply(path, index, pop), { path }));
 }
 
 export async function stashDrop(path: string, index: number) {
-  if (!(await confirm("Elimina stash", `Eliminare definitivamente stash@{${index}}?`, { danger: true, confirmLabel: "Elimina" }))) return;
-  await run("Elimina stash", () => api.stashDrop(path, index), { path, success: "Stash eliminato" });
+  const title = t("actions.stash.dropTitle");
+  if (!(await confirm(title, t("actions.stash.dropConfirm", { ref: `stash@{${index}}` }), { danger: true, confirmLabel: t("common.delete") }))) return;
+  await run(title, () => api.stashDrop(path, index), { path, success: t("actions.stash.dropped") });
 }
 
 // ---------------------------------------------------------------- working copy
 
 export async function discardFiles(path: string, files: { path: string; status: string }[]) {
   if (!files.length) return;
-  const names = files.length === 1 ? files[0].path : `${files.length} file`;
-  if (!(await confirm("Scarta modifiche", `Scartare le modifiche a ${names}? Non si può annullare.`, { danger: true, confirmLabel: "Scarta" })))
-    return;
+  const names = files.length === 1 ? files[0].path : t("actions.discard.nFiles", { count: files.length });
+  const discard = t("actions.discard.button");
+  if (!(await confirm(t("actions.discard.title"), t("actions.discard.confirm", { names }), { danger: true, confirmLabel: discard }))) return;
   const tracked = files.filter((f) => f.status !== "?").map((f) => f.path);
   const untracked = files.filter((f) => f.status === "?").map((f) => f.path);
-  await run("Scarta", () => api.discard(path, tracked, untracked), { path, success: "Modifiche scartate" });
+  await run(discard, () => api.discard(path, tracked, untracked), { path, success: t("actions.discard.done") });
 }
 
 export async function discardAll(path = active()) {
-  if (!(await confirm("Scarta tutto", "Eliminare TUTTE le modifiche non committate, inclusi i file non tracciati? Non si può annullare.", { danger: true, confirmLabel: "Scarta tutto" })))
-    return;
-  await run("Scarta tutto", () => api.discardAll(path), { path, success: "Working copy ripulita" });
+  const title = t("actions.discardAll.title");
+  if (!(await confirm(title, t("actions.discardAll.confirm"), { danger: true, confirmLabel: title }))) return;
+  await run(title, () => api.discardAll(path), { path, success: t("actions.discardAll.done") });
 }
 
 // ---------------------------------------------------------------- GitFlow
@@ -653,22 +678,22 @@ export async function gitflowInit(path = active()) {
   const s = await api.gitflowSuggest(path).catch(() => null);
   if (!s) return;
   const v = await prompt({
-    title: "Inizializza Git Flow",
-    message: "I nomi sono salvati nella configurazione del repository (compatibile con git-flow e GitKraken).",
+    title: t("actions.gitflow.initTitle"),
+    message: t("actions.gitflow.initMessage"),
     fields: [
-      { name: "master", label: "Branch di produzione", value: s.master, required: true, mono: true },
-      { name: "develop", label: "Branch di sviluppo", value: s.develop, required: true, mono: true },
-      { name: "feature", label: "Prefisso feature", value: s.feature, mono: true },
-      { name: "bugfix", label: "Prefisso bugfix", value: s.bugfix, mono: true },
-      { name: "release", label: "Prefisso release", value: s.release, mono: true },
-      { name: "hotfix", label: "Prefisso hotfix", value: s.hotfix, mono: true },
-      { name: "versionTag", label: "Prefisso tag di versione", value: s.versionTag, placeholder: "es. v", mono: true },
+      { name: "master", label: t("actions.gitflow.production"), value: s.master, required: true, mono: true },
+      { name: "develop", label: t("actions.gitflow.development"), value: s.develop, required: true, mono: true },
+      { name: "feature", label: t("actions.gitflow.prefix.feature"), value: s.feature, mono: true },
+      { name: "bugfix", label: t("actions.gitflow.prefix.bugfix"), value: s.bugfix, mono: true },
+      { name: "release", label: t("actions.gitflow.prefix.release"), value: s.release, mono: true },
+      { name: "hotfix", label: t("actions.gitflow.prefix.hotfix"), value: s.hotfix, mono: true },
+      { name: "versionTag", label: t("actions.gitflow.prefix.versionTag"), value: s.versionTag, placeholder: t("actions.gitflow.versionTagPlaceholder"), mono: true },
     ],
-    confirmLabel: "Inizializza",
+    confirmLabel: t("actions.gitflow.init"),
   });
   if (!v) return;
   const cfg = { ...s, ...(v as Record<string, string>) };
-  await run("Git Flow init", () => api.gitflowInit(path, cfg), { path, success: "Git Flow inizializzato", full: true });
+  await run("Git Flow init", () => api.gitflowInit(path, cfg), { path, success: t("actions.gitflow.initialized"), full: true });
 }
 
 const kindLabel: Record<GitFlowKind, string> = { feature: "feature", bugfix: "bugfix", release: "release", hotfix: "hotfix" };
@@ -687,18 +712,18 @@ export async function gitflowStart(path: string, kind: GitFlowKind) {
     }
   }
   const v = await prompt({
-    title: `Inizia ${kindLabel[kind]}`,
-    message: `Verrà creato ${cfg[kind]}<nome> a partire da ${base}.`,
+    title: t("actions.gitflow.startTitle", { kind: kindLabel[kind] }),
+    message: t("actions.gitflow.startMessage", { prefix: cfg[kind], base }),
     fields: [
-      { name: "name", label: isVersion ? "Versione" : "Nome", value: suggestion, placeholder: isVersion ? "1.4.0" : "login-oauth", required: true, mono: true },
+      { name: "name", label: isVersion ? t("actions.gitflow.version") : t("actions.field.name"), value: suggestion, placeholder: isVersion ? "1.4.0" : "login-oauth", required: true, mono: true },
       { name: "base", label: "Base", value: base, mono: true },
     ],
-    confirmLabel: "Inizia",
+    confirmLabel: t("actions.gitflow.start"),
   });
   if (!v) return;
   await run(`Git Flow ${kind} start`, () => api.gitflowStart(path, kind, String(v.name), String(v.base || "") || null), {
     path,
-    success: (b) => `Creato ${b}`,
+    success: (b) => t("actions.gitflow.created", { branch: b }),
   });
 }
 
@@ -706,18 +731,18 @@ export async function gitflowFinish(path: string, kind: GitFlowKind, name: strin
   const cfg = ov(path)?.gitflow;
   if (!cfg) return;
   const isVersion = kind === "release" || kind === "hotfix";
-  const targets = isVersion ? `${cfg.master} e ${cfg.develop}` : cfg.develop;
+  const targets = isVersion ? t("actions.gitflow.targetsBoth", { master: cfg.master, develop: cfg.develop }) : cfg.develop;
   const fields: PromptSpec["fields"] = [];
   if (isVersion) {
-    fields.push({ name: "tagMessage", label: `Messaggio del tag ${cfg.versionTag}${name}`, type: "textarea", value: `${kind === "release" ? "Release" : "Hotfix"} ${name}` });
+    fields.push({ name: "tagMessage", label: t("actions.gitflow.tagMessage", { tag: `${cfg.versionTag}${name}` }), type: "textarea", value: `${kind === "release" ? "Release" : "Hotfix"} ${name}` });
   }
-  fields.push({ name: "deleteBranch", label: `Elimina ${cfg[kind]}${name} dopo il merge`, type: "checkbox", value: true });
-  fields.push({ name: "push", label: "Push su origin al termine", type: "checkbox", value: false });
+  fields.push({ name: "deleteBranch", label: t("actions.gitflow.deleteAfter", { branch: `${cfg[kind]}${name}` }), type: "checkbox", value: true });
+  fields.push({ name: "push", label: t("actions.gitflow.pushAfter"), type: "checkbox", value: false });
   const v = await prompt({
-    title: `Concludi ${kind} ${name}`,
-    message: `${cfg[kind]}${name} verrà unito (--no-ff) in ${targets}${isVersion ? " con creazione del tag" : ""}.`,
+    title: t("actions.gitflow.finishTitle", { kind, name }),
+    message: t(isVersion ? "actions.gitflow.finishMessageTag" : "actions.gitflow.finishMessage", { branch: `${cfg[kind]}${name}`, targets }),
     fields,
-    confirmLabel: "Concludi",
+    confirmLabel: t("actions.gitflow.finish"),
   });
   if (!v) return;
   const o = await run(`Git Flow ${kind} finish`, () =>
@@ -750,9 +775,9 @@ export async function loadPullRequests(path: string, quiet = false) {
 export async function createPullRequest(path = active(), source?: string) {
   const o = ov(path);
   if (!o) return;
-  if (!o.provider || o.provider.kind === "unknown") return toast("error", "Il remote non è su GitHub o GitLab");
+  if (!o.provider || o.provider.kind === "unknown") return toast("error", t("actions.pr.unsupported"));
   if (!o.provider.accountId) {
-    toast("warning", `Aggiungi un account per ${o.provider.host} nelle Preferenze`);
+    toast("warning", t("actions.pr.addAccount", { host: o.provider.host }));
     S().set({ modal: "preferences" });
     return;
   }
@@ -767,40 +792,42 @@ export async function createPullRequest(path = active(), source?: string) {
   const isGh = o.provider.kind === "github";
   const lastSubject = (await api.lastCommitMessage(path).catch(() => "")).split("\n")[0];
   const v = await prompt({
-    title: isGh ? "Nuova pull request" : "Nuova merge request",
-    message: `${o.provider.project} su ${o.provider.host}`,
+    title: isGh ? t("actions.pr.newGithub") : t("actions.pr.newGitlab"),
+    message: t("actions.pr.projectOn", { project: o.provider.project, host: o.provider.host }),
     fields: [
-      { name: "source", label: "Da (branch sorgente)", value: src, required: true, mono: true },
+      { name: "source", label: t("actions.pr.source"), value: src, required: true, mono: true },
       {
         name: "target",
-        label: "Verso (branch di destinazione)",
+        label: t("actions.pr.target"),
         type: "select",
         value: defaultTarget,
         options: (remoteBranches.length ? remoteBranches : [defaultTarget]).map((b) => ({ value: b, label: b })),
       },
-      { name: "title", label: "Titolo", value: lastSubject, required: true },
-      { name: "body", label: "Descrizione", type: "textarea" },
-      { name: "draft", label: "Bozza (draft)", type: "checkbox", value: false },
+      { name: "title", label: t("actions.pr.title"), value: lastSubject, required: true },
+      { name: "body", label: t("actions.pr.body"), type: "textarea" },
+      { name: "draft", label: t("actions.pr.draft"), type: "checkbox", value: false },
     ],
-    confirmLabel: "Crea",
+    confirmLabel: t("actions.create"),
   });
   if (!v) return;
   const source2 = String(v.source);
   // The source branch must exist on the remote.
   if (!remoteBranches.includes(source2) && o.locals.some((b) => b.name === source2)) {
-    const ok = await confirm("Branch non pubblicato", `${source2} non è ancora sul remote. Eseguire il push adesso?`, { confirmLabel: "Push e crea" });
+    const ok = await confirm(t("actions.pr.notPublishedTitle"), t("actions.pr.notPublished", { branch: source2 }), {
+      confirmLabel: t("actions.pr.pushAndCreate"),
+    });
     if (!ok) return;
     const pushed = await run("Push", () => api.push(path, newOpId(), source2, o.provider!.remote, false), { path });
     if (pushed === undefined) return;
   }
-  const pr = await run("Crea PR", () =>
+  const pr = await run(t("actions.pr.createBusy"), () =>
     api.pullRequestCreate(path, {
       title: String(v.title),
       body: String(v.body ?? ""),
       sourceBranch: source2,
       targetBranch: String(v.target),
       draft: !!v.draft,
-    }), { path, success: (p) => `${isGh ? "PR" : "MR"} #${p.number} creata` });
+    }), { path, success: (p) => t("actions.pr.created", { kind: isGh ? "PR" : "MR", number: p.number }) });
   if (pr) {
     loadPullRequests(path, true);
     openExternal(pr.webUrl);

@@ -4,6 +4,7 @@ use serde::Serialize;
 
 use crate::error::{Error, Result};
 use crate::git::Git;
+use crate::tr;
 use crate::repo;
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
@@ -128,7 +129,7 @@ fn stage_exists(git: &Git, stage: u8, path: &str) -> bool {
 fn side_names(git: &Git) -> (String, String) {
     let gd = match repo::git_dir(git) {
         Ok(d) => d,
-        Err(_) => return ("Nostro".into(), "Loro".into()),
+        Err(_) => return (tr!("Nostro", "Ours"), tr!("Loro", "Theirs")),
     };
     let ours = git
         .run(["symbolic-ref", "-q", "--short", "HEAD"])
@@ -142,8 +143,8 @@ fn side_names(git: &Git) -> (String, String) {
         let head = read("rebase-merge/head-name")
             .or_else(|| read("rebase-apply/head-name"))
             .map(|h| h.trim_start_matches("refs/heads/").to_string())
-            .unwrap_or_else(|| "commit in rebase".into());
-        return (format!("Base del rebase {onto}").trim().to_string(), head);
+            .unwrap_or_else(|| tr!("commit in rebase", "commit being rebased"));
+        return (tr!("Base del rebase {onto}", "Rebasing onto {onto}").trim().to_string(), head);
     }
     let theirs = read("MERGE_HEAD")
         .or_else(|| read("CHERRY_PICK_HEAD"))
@@ -154,7 +155,7 @@ fn side_names(git: &Git) -> (String, String) {
                 .map(|n| n.trim().to_string())
                 .unwrap_or_else(|_| short(h))
         })
-        .unwrap_or_else(|| "Loro".into());
+        .unwrap_or_else(|| tr!("Loro", "Theirs"));
     (ours, theirs)
 }
 
@@ -165,7 +166,7 @@ pub fn load(git: &Git, path: &str) -> Result<ConflictDoc> {
         .iter()
         .find(|c| c.path == path)
         .map(|c| c.kind.clone())
-        .ok_or_else(|| Error::msg(format!("{path} non è in conflitto")))?;
+        .ok_or_else(|| Error::msg(tr!("{path} non è in conflitto", "{path} is not in conflict")))?;
     let full = git.dir.join(path);
     let bytes = std::fs::read(&full).unwrap_or_default();
     let binary = bytes.iter().take(8000).any(|&b| b == 0);
@@ -206,7 +207,7 @@ pub fn resolve_with_side(git: &Git, path: &str, side: &str) -> Result<()> {
                 git.run(["rm", "-q", "--ignore-unmatch", "--", path])?;
             }
         }
-        _ => return Err(Error::msg(format!("lato sconosciuto: {side}"))),
+        _ => return Err(Error::msg(tr!("lato sconosciuto: {side}", "unknown side: {side}"))),
     }
     Ok(())
 }

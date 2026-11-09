@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use crate::diff;
 use crate::error::{Error, Result};
 use crate::git::Git;
+use crate::tr;
 use crate::gitflow;
 use crate::graph::{self, LayoutInput};
 use crate::model::*;
@@ -16,10 +17,14 @@ pub const WIP_HASH: &str = "WIP";
 /// Resolve any path inside a work tree to the repository root.
 pub fn open(path: &Path) -> Result<PathBuf> {
     if !path.is_dir() {
-        return Err(Error::msg(format!("cartella inesistente: {}", path.display())));
+        return Err(Error::msg(tr!("cartella inesistente: {}", "folder does not exist: {}", path.display())));
     }
     let out = Git::new(path).run(["rev-parse", "--show-toplevel"]).map_err(|_| {
-        Error::msg(format!("{} non è un repository git (o è un repository bare)", path.display()))
+        Error::msg(tr!(
+            "{} non è un repository git (o è un repository bare)",
+            "{} is not a git repository (or is a bare repository)",
+            path.display()
+        ))
     })?;
     Ok(PathBuf::from(out.trim()))
 }
@@ -148,10 +153,10 @@ pub fn repo_state(git_dir: &Path) -> RepoState {
         let head = read_file(&dir.join("head-name")).map(|h| h.trim_start_matches("refs/heads/").to_string());
         let mut detail = String::new();
         if let (Some(s), Some(e)) = (step, end) {
-            detail = format!("passo {s}/{e}");
+            detail = tr!("passo {s}/{e}", "step {s}/{e}");
         }
         if let Some(h) = head {
-            detail = format!("{detail} di {h}").trim().to_string();
+            detail = tr!("{detail} di {h}", "{detail} of {h}").trim().to_string();
         }
         return RepoState { kind: "rebase".into(), detail: (!detail.is_empty()).then_some(detail), message: None };
     }
@@ -449,7 +454,7 @@ pub fn commit_details(git: &Git, hash: &str) -> Result<CommitDetails> {
     ])?;
     let f: Vec<&str> = out.splitn(9, '\x1f').collect();
     if f.len() < 9 {
-        return Err(Error::msg("formato di git show inatteso"));
+        return Err(Error::msg(tr!("formato di git show inatteso", "unexpected git show output")));
     }
     let message = f[8].trim_end();
     let (subject, body) = match message.split_once('\n') {

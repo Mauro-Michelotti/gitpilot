@@ -274,6 +274,7 @@ export interface Settings {
   graphLimit: number;
   cloneDir: string | null;
   authorAvatars: boolean;
+  language: "system" | "it" | "en";
 }
 
 export interface AppInfo {

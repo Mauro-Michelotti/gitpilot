@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 use crate::ops::NetAuth;
+use crate::tr;
 use crate::util::base64;
 
 const KEYRING_SERVICE: &str = "dev.gitpilot.app";
@@ -39,7 +40,7 @@ pub fn endpoints(kind: &str, host_input: &str) -> Result<(String, String, String
     let default_host = match kind {
         "github" => "github.com",
         "gitlab" => "gitlab.com",
-        _ => return Err(Error::msg(format!("provider sconosciuto: {kind}"))),
+        _ => return Err(Error::msg(tr!("provider sconosciuto: {kind}", "unknown provider: {kind}"))),
     };
     let base = if input.is_empty() {
         format!("https://{default_host}")
@@ -57,7 +58,7 @@ pub fn endpoints(kind: &str, host_input: &str) -> Result<(String, String, String
         .unwrap_or_default()
         .to_lowercase();
     if host.is_empty() {
-        return Err(Error::msg("indirizzo server non valido"));
+        return Err(Error::msg(tr!("indirizzo server non valido", "invalid server address")));
     }
     let api = match (kind, host.as_str()) {
         ("github", "github.com") => "https://api.github.com".to_string(),
@@ -101,7 +102,7 @@ impl AccountStore {
         self.list()?
             .into_iter()
             .find(|a| a.id == id)
-            .ok_or_else(|| Error::msg("account non trovato"))
+            .ok_or_else(|| Error::msg(tr!("account non trovato", "account not found")))
     }
 
     /// Insert or replace an account and store its token.
@@ -139,7 +140,7 @@ impl AccountStore {
             return self
                 .file_tokens()?
                 .remove(&account.id)
-                .ok_or_else(|| Error::msg(format!("token mancante per {}", account.id)));
+                .ok_or_else(|| Error::msg(tr!("token mancante per {}", "missing token for {}", account.id)));
         }
         Ok(keyring::Entry::new(KEYRING_SERVICE, &account.id)?.get_password()?)
     }

@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import * as A from "../actions";
+import { useT } from "../i18n";
 import { useStore, type MenuItem, type RepoTab } from "../store";
 import { Logo } from "./icons";
 
@@ -35,6 +36,7 @@ function TbButton({
   badge?: ReactNode;
   menu?: (e: React.MouseEvent) => void;
 }) {
+  const t = useT();
   return (
     <div className="tb-btn-wrap">
       <button className="tb-btn" onClick={onClick} disabled={disabled} title={label}>
@@ -45,7 +47,7 @@ function TbButton({
         <span className="tb-label">{label}</span>
       </button>
       {menu && (
-        <button className="tb-caret" onClick={menu} disabled={disabled} aria-label={`Opzioni ${label}`}>
+        <button className="tb-caret" onClick={menu} disabled={disabled} aria-label={t("toolbar.options", { label })}>
           <ChevronDown size={12} />
         </button>
       )}
@@ -57,38 +59,39 @@ export function TabBar() {
   const tabs = useStore((s) => s.tabs);
   const active = useStore((s) => s.active);
   const repos = useStore((s) => s.repos);
+  const t = useT();
   return (
     <div className="tabbar">
       <div className="tabbar-logo" onClick={() => A.setActive(null)} title="Home">
         <Logo size={20} />
       </div>
-      {tabs.map((t) => (
+      {tabs.map((p) => (
         <div
-          key={t}
-          className={`tab${t === active ? " active" : ""}`}
+          key={p}
+          className={`tab${p === active ? " active" : ""}`}
           onMouseDown={(e) => {
             if (e.button === 1) {
               e.preventDefault();
-              A.closeTab(t);
-            } else A.setActive(t);
+              A.closeTab(p);
+            } else A.setActive(p);
           }}
-          title={t}
+          title={p}
         >
-          <span className="tab-name">{repos[t]?.name ?? t}</span>
+          <span className="tab-name">{repos[p]?.name ?? p}</span>
           <button
             className="tab-close"
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
-              A.closeTab(t);
+              A.closeTab(p);
             }}
-            aria-label="Chiudi scheda"
+            aria-label={t("toolbar.closeTab")}
           >
             <X size={12} />
           </button>
         </div>
       ))}
-      <button className={`tab tab-new${active === null ? " active" : ""}`} onClick={() => A.setActive(null)} title="Apri, clona o crea un repository">
+      <button className={`tab tab-new${active === null ? " active" : ""}`} onClick={() => A.setActive(null)} title={t("toolbar.newTab")}>
         <Plus size={14} />
       </button>
     </div>
@@ -96,6 +99,7 @@ export function TabBar() {
 }
 
 export function Toolbar({ tab }: { tab: RepoTab }) {
+  const t = useT();
   const busy = useStore((s) => s.busy);
   const settings = useStore((s) => s.settings);
   const path = tab.path;
@@ -104,7 +108,7 @@ export function Toolbar({ tab }: { tab: RepoTab }) {
   const head = o?.head;
   const disabled = !!busy || !o;
   const pullMode = settings?.pullMode ?? "ff";
-  const pullLabel = { ff: "fast-forward se possibile", "ff-only": "solo fast-forward", rebase: "rebase" }[pullMode];
+  const pullLabel = { ff: t("toolbar.pullMode.ff"), "ff-only": t("toolbar.pullMode.ffOnly"), rebase: t("toolbar.pullMode.rebase") }[pullMode];
 
   const pullMenu = (e: React.MouseEvent) => {
     const item = (mode: "ff" | "ff-only" | "rebase", label: string): MenuItem => ({
@@ -114,7 +118,14 @@ export function Toolbar({ tab }: { tab: RepoTab }) {
         A.pull(path, mode);
       },
     });
-    A.showMenu(e, [item("ff", "Pull (fast-forward se possibile)"), item("ff-only", "Pull (solo fast-forward)"), item("rebase", "Pull (rebase)"), { separator: true }, { label: "Pull di tutti i branch (fast-forward)", action: () => A.pullAllBranches(path) }, { label: "Solo fetch di tutti i remote", action: () => A.fetchAll(path) }]);
+    A.showMenu(e, [
+      item("ff", t("toolbar.pull.ff")),
+      item("ff-only", t("toolbar.pull.ffOnly")),
+      item("rebase", t("toolbar.pull.rebase")),
+      { separator: true },
+      { label: t("toolbar.pullAll"), action: () => A.pullAllBranches(path) },
+      { label: t("toolbar.fetchOnly"), action: () => A.fetchAll(path) },
+    ]);
   };
 
   const pushMenu = (e: React.MouseEvent) =>
@@ -126,18 +137,18 @@ export function Toolbar({ tab }: { tab: RepoTab }) {
   const flowMenu = (e: React.MouseEvent) => {
     const gf = o?.gitflow;
     if (!gf) {
-      A.showMenu(e, [{ label: "Inizializza Git Flow…", action: () => A.gitflowInit(path) }]);
+      A.showMenu(e, [{ label: t("toolbar.flow.init"), action: () => A.gitflowInit(path) }]);
       return;
     }
     const kinds = ["feature", "bugfix", "release", "hotfix"] as const;
     const cur = head?.branch ?? "";
     const curKind = kinds.find((k) => cur.startsWith(gf[k]));
-    const items: MenuItem[] = kinds.map((k) => ({ label: `Inizia ${k}…`, action: () => A.gitflowStart(path, k) }));
+    const items: MenuItem[] = kinds.map((k) => ({ label: t("toolbar.flow.start", { kind: k }), action: () => A.gitflowStart(path, k) }));
     if (curKind) {
       const name = cur.slice(gf[curKind].length);
-      items.push({ separator: true }, { label: `Concludi ${curKind} ${name}…`, action: () => A.gitflowFinish(path, curKind, name) });
+      items.push({ separator: true }, { label: t("toolbar.flow.finish", { kind: curKind, name }), action: () => A.gitflowFinish(path, curKind, name) });
     }
-    items.push({ separator: true }, { label: "Configurazione Git Flow…", action: () => A.gitflowInit(path) });
+    items.push({ separator: true }, { label: t("toolbar.flow.config"), action: () => A.gitflowInit(path) });
     A.showMenu(e, items);
   };
 
@@ -151,7 +162,7 @@ export function Toolbar({ tab }: { tab: RepoTab }) {
           {tab.name}
         </div>
         <div className="tb-branch">
-          {head?.branch ?? (head?.hash ? `HEAD staccato ${head.hash.slice(0, 7)}` : "nessun commit")}
+          {head?.branch ?? (head?.hash ? t("toolbar.detachedHead", { hash: head.hash.slice(0, 7) }) : t("toolbar.noCommits"))}
           {head?.upstream && <span className="muted"> → {head.upstream}</span>}
         </div>
       </div>
@@ -197,18 +208,18 @@ export function Toolbar({ tab }: { tab: RepoTab }) {
         </div>
       )}
       <div className="tb-group">
-        <button className="icon-btn" title="Mostra nel file manager" onClick={() => revealItemInDir(path).catch(() => {})}>
+        <button className="icon-btn" title={t("toolbar.reveal")} onClick={() => revealItemInDir(path).catch(() => {})}>
           <FolderOpen size={17} />
         </button>
         <button
           className="icon-btn"
-          title={refreshing ? "Aggiornamento in corso…" : `Aggiorna (F5) — pull: ${pullLabel}`}
+          title={refreshing ? t("toolbar.refreshing") : t("toolbar.refresh", { mode: pullLabel })}
           aria-busy={refreshing}
           onClick={() => A.reload(path)}
         >
           <RefreshCw size={17} className={refreshing ? "spin" : undefined} />
         </button>
-        <button className="icon-btn" title="Preferenze" onClick={() => useStore.getState().set({ modal: "preferences" })}>
+        <button className="icon-btn" title={t("toolbar.preferences")} onClick={() => useStore.getState().set({ modal: "preferences" })}>
           <Gear size={17} />
         </button>
       </div>

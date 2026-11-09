@@ -1,4 +1,5 @@
 // Small formatting helpers.
+import { lang, t, type Lang } from "./i18n";
 
 export const LANE_COLORS = [
   "#4f9dff",
@@ -32,20 +33,32 @@ export function initials(name: string) {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-const rtf = new Intl.RelativeTimeFormat("it", { numeric: "auto" });
-const dtf = new Intl.DateTimeFormat("it", { dateStyle: "medium", timeStyle: "short" });
+// Formatters of the active language, rebuilt only when it changes (the graph formats many dates).
+let fmt: { lang: Lang; rtf: Intl.RelativeTimeFormat; dtf: Intl.DateTimeFormat } | null = null;
+function formatters() {
+  const l = lang();
+  if (fmt?.lang !== l) {
+    fmt = {
+      lang: l,
+      rtf: new Intl.RelativeTimeFormat(l, { numeric: "auto" }),
+      dtf: new Intl.DateTimeFormat(l, { dateStyle: "medium", timeStyle: "short" }),
+    };
+  }
+  return fmt;
+}
 
 export function relativeTime(unix: number) {
   const diff = unix - Date.now() / 1000;
   const abs = Math.abs(diff);
-  if (abs < 60) return "adesso";
+  const { rtf } = formatters();
+  if (abs < 60) return t("time.now");
   if (abs < 3600) return rtf.format(Math.round(diff / 60), "minute");
   if (abs < 86400) return rtf.format(Math.round(diff / 3600), "hour");
   if (abs < 86400 * 7) return rtf.format(Math.round(diff / 86400), "day");
   return fullDate(unix);
 }
 
-export const fullDate = (unix: number) => dtf.format(new Date(unix * 1000));
+export const fullDate = (unix: number) => formatters().dtf.format(new Date(unix * 1000));
 
 export const shortHash = (h: string) => h.slice(0, 7);
 
@@ -58,27 +71,6 @@ export function dirname(p: string) {
   parts.pop();
   return parts.join("/");
 }
-
-export const STATUS_LABEL: Record<string, string> = {
-  M: "Modificato",
-  A: "Aggiunto",
-  D: "Eliminato",
-  R: "Rinominato",
-  C: "Copiato",
-  T: "Tipo cambiato",
-  U: "In conflitto",
-  "?": "Nuovo",
-};
-
-export const CONFLICT_LABEL: Record<string, string> = {
-  "both-modified": "modificato da entrambi",
-  "both-added": "aggiunto da entrambi",
-  "both-deleted": "eliminato da entrambi",
-  "added-by-us": "aggiunto da noi",
-  "added-by-them": "aggiunto da loro",
-  "deleted-by-us": "eliminato da noi",
-  "deleted-by-them": "eliminato da loro",
-};
 
 /** Split `feature/x/y` style names into a folder tree. */
 export interface TreeNode<T> {

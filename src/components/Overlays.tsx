@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { CircleCheck, CircleX, FolderOpen, Info, TriangleAlert, X } from "lucide-react";
 import { dismissToast } from "../actions";
+import { useT } from "../i18n";
 import { useStore, type PromptValues } from "../store";
 
 export function ContextMenu() {
@@ -67,15 +68,16 @@ export function ContextMenu() {
 }
 
 export function Toasts() {
+  const t = useT();
   const toasts = useStore((s) => s.toasts);
   const icon = { info: <Info size={16} />, success: <CircleCheck size={16} />, error: <CircleX size={16} />, warning: <TriangleAlert size={16} /> };
   return (
     <div className="toasts">
-      {toasts.map((t) => (
-        <div key={t.id} className={`toast toast-${t.kind}`} role="status">
-          <span className="toast-icon">{icon[t.kind]}</span>
-          <span className="toast-text">{t.text}</span>
-          <button className="icon-btn" onClick={() => dismissToast(t.id)} aria-label="Chiudi">
+      {toasts.map((toast) => (
+        <div key={toast.id} className={`toast toast-${toast.kind}`} role="status">
+          <span className="toast-icon">{icon[toast.kind]}</span>
+          <span className="toast-text">{toast.text}</span>
+          <button className="icon-btn" onClick={() => dismissToast(toast.id)} aria-label={t("common.close")}>
             <X size={14} />
           </button>
         </div>
@@ -97,6 +99,7 @@ export function Modal({
   onClose: () => void;
   width?: number;
 }) {
+  const t = useT();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -112,7 +115,7 @@ export function Modal({
       <div className="modal" style={{ width }} onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-modal>
         <div className="modal-head">
           <h2>{title}</h2>
-          <button className="icon-btn" onClick={onClose} aria-label="Chiudi">
+          <button className="icon-btn" onClick={onClose} aria-label={t("common.close")}>
             <X size={16} />
           </button>
         </div>
@@ -124,6 +127,7 @@ export function Modal({
 }
 
 export function PromptDialog() {
+  const t = useT();
   const spec = useStore((s) => s.prompt);
   const [values, setValues] = useState<PromptValues>({});
   const firstRef = useRef<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null>(null);
@@ -163,11 +167,11 @@ export function PromptDialog() {
         <>
           {!spec.alert && (
             <button className="btn" onClick={() => spec.resolve(null)}>
-              Annulla
+              {t("common.cancel")}
             </button>
           )}
           <button className={`btn ${spec.danger ? "btn-danger" : "btn-primary"}`} disabled={missing} onClick={submit}>
-            {spec.confirmLabel ?? "OK"}
+            {spec.confirmLabel ?? t("common.ok")}
           </button>
         </>
       }
@@ -234,7 +238,7 @@ export function PromptDialog() {
                         if (typeof d === "string") setField(f.name, d);
                       }}
                     >
-                      <FolderOpen size={14} /> Sfoglia
+                      <FolderOpen size={14} /> {t("dialogs.browse")}
                     </button>
                   )}
                 </div>
