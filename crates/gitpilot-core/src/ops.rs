@@ -1,11 +1,12 @@
 //! Write operations on a repository.
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use crate::diff;
 use crate::error::{Error, Result};
 use crate::git::Git;
-use crate::model::OpOutcome;
+use crate::model::{OpOutcome, PullAllReport, SkippedBranch, UpdatedBranch};
 use crate::repo;
 
 /// `http.<url>.extraheader` entries to authenticate HTTPS remotes (see `accounts::auth_config`).
@@ -226,46 +227,199 @@ pub fn pull_branch(git: &Git, branch: &str, auth: &NetAuth, progress: &mut dyn F
     networked(git, auth).run_progress(["fetch", "--progress", &remote, &merge], progress)?;
     let target = commit_of(git, "FETCH_HEAD")?;
 
-    if target == local {
-        return Ok(format!("{branch} è già aggiornato"));
+    match ahead_behind(git, &local, &target)? {
+        (0, 0) => Ok(format!("{branch} è già aggiornato")),
+        (ahead, 0) => Ok(format!("{branch} è avanti di {ahead} commit rispetto a {upstream}: niente da aggiornare")),
+        (0, behind) => {
+            fast_forward_ref(git, branch, &local, &target, &upstream)?;
+            Ok(format!("{branch} aggiornato in fast-forward a {upstream} ({behind} commit)"))
+        }
+        (ahead, behind) => Err(Error::msg(format!(
+            "{branch} è {}: fai checkout di {branch} per unire con merge o rebase",
+            diverged(&upstream, ahead, behind)
+        ))),
     }
-    let behind = count_between(git, &local, &target)?;
-    let ahead = count_between(git, &target, &local)?;
-    if behind == 0 {
-        return Ok(format!("{branch} è avanti di {ahead} commit rispetto a {upstream}: niente da aggiornare"));
+}
+
+/// Fast-forward every local branch that has an upstream, fetching each remote only once.
+///
+/// Branches that cannot simply follow their upstream (diverged, checked out in another
+/// worktree, upstream deleted on the remote, remote not reachable) are left untouched and
+/// reported with the reason. The current branch is fast-forwarded too, working tree
+/// included, when that is possible: no merge or rebase is ever started, so the operation
+/// never stops on conflicts.
+pub fn pull_all_branches(git: &Git, auth: &NetAuth, progress: &mut dyn FnMut(&str)) -> Result<PullAllReport> {
+    // A rebase/bisect detaches HEAD but still owns its branch: moving it would break the operation.
+    let state = repo::repo_state(&repo::git_dir(git)?);
+    if state.kind == "rebase" || state.kind == "bisect" {
+        return Err(Error::msg(format!("{} in corso: completalo o annullalo prima del pull", state.kind)));
     }
-    if ahead > 0 {
-        return Err(Error::msg(format!(
-            "{branch} è divergente da {upstream} ({ahead} commit avanti, {behind} indietro): \
-             fai checkout di {branch} per unire con merge o rebase"
-        )));
+    let mut branches = tracked_branches(git)?;
+    // Branches following another local branch go last, so they see it already updated.
+    branches.sort_by_key(|b| b.remote == ".");
+
+    let mut remotes: Vec<&str> = branches.iter().map(|b| b.remote.as_str()).filter(|r| *r != ".").collect();
+    remotes.sort_unstable();
+    remotes.dedup();
+    let g = networked(git, auth);
+    let mut unreachable = HashMap::new();
+    for remote in remotes {
+        // Like `git pull`: tags are only auto-followed, so a moved tag cannot fail the fetch.
+        if let Err(e) = g.run_progress(["fetch", "--progress", "--prune", remote], progress) {
+            unreachable.insert(remote, short_error(&e));
+        }
     }
-    git.run(["update-ref", "-m", &format!("pull: fast-forward da {upstream}"), &local_ref, &target, &local])?;
-    Ok(format!("{branch} aggiornato in fast-forward a {upstream} ({behind} commit)"))
+
+    let current = current_branch(git).ok();
+    let worktrees = checked_out(git)?;
+    let mut report = PullAllReport::default();
+    for b in &branches {
+        let outcome = if let Some(e) = unreachable.get(b.remote.as_str()) {
+            Err(Error::msg(format!("fetch di {} non riuscito: {e}", b.remote)))
+        } else {
+            let is_current = current.as_deref() == Some(b.name.as_str());
+            let in_worktree = if is_current { None } else { worktrees.get(&format!("refs/heads/{}", b.name)) };
+            match in_worktree {
+                Some(wt) => Err(Error::msg(format!("in checkout nel worktree {wt}"))),
+                None => pull_tracked(git, b, is_current, &state.kind),
+            }
+        };
+        match outcome {
+            Ok(0) => report.up_to_date.push(b.name.clone()),
+            Ok(commits) => report.updated.push(UpdatedBranch { name: b.name.clone(), commits }),
+            Err(e) => report.skipped.push(SkippedBranch { name: b.name.clone(), reason: short_error(&e) }),
+        }
+    }
+    Ok(report)
+}
+
+/// A local branch with an upstream, as configured by `branch.<name>.remote/merge`.
+struct TrackedBranch {
+    name: String,
+    oid: String,
+    /// Remote name, `.` for a local upstream.
+    remote: String,
+    /// Full ref of the upstream (`refs/remotes/origin/main`, `refs/heads/main`).
+    upstream_ref: String,
+    /// Short name of the upstream (`origin/main`), for messages.
+    upstream: String,
+}
+
+fn tracked_branches(git: &Git) -> Result<Vec<TrackedBranch>> {
+    let out = git.run([
+        "for-each-ref",
+        "--format=%(refname:strip=2)%1f%(objectname)%1f%(upstream:remotename)%1f%(upstream)%1f%(upstream:short)",
+        "refs/heads",
+    ])?;
+    Ok(out
+        .lines()
+        .filter_map(|line| {
+            let f: Vec<&str> = line.split('\x1f').collect();
+            let [name, oid, remote, upstream_ref, upstream] = f[..] else { return None };
+            (!remote.is_empty() && !upstream_ref.is_empty()).then(|| TrackedBranch {
+                name: name.to_string(),
+                oid: oid.to_string(),
+                remote: remote.to_string(),
+                upstream_ref: upstream_ref.to_string(),
+                upstream: upstream.to_string(),
+            })
+        })
+        .collect())
+}
+
+/// Bring one branch to its (already fetched) upstream. Returns the number of commits
+/// gained, 0 when there was nothing to take; an error means the branch was left as it was.
+fn pull_tracked(git: &Git, b: &TrackedBranch, is_current: bool, repo_state: &str) -> Result<u32> {
+    let target = commit_of(git, &b.upstream_ref).map_err(|_| {
+        Error::msg(if b.remote == "." {
+            format!("il branch upstream {} non esiste più", b.upstream)
+        } else {
+            format!("{} eliminato sul remote", b.upstream)
+        })
+    })?;
+    match ahead_behind(git, &b.oid, &target)? {
+        (_, 0) => Ok(0),
+        (0, behind) if !is_current => {
+            fast_forward_ref(git, &b.name, &b.oid, &target, &b.upstream)?;
+            Ok(behind)
+        }
+        (0, _) if repo_state != "none" => Err(Error::msg(format!("{repo_state} in corso"))),
+        (0, behind) => {
+            // Updates the working tree too; git refuses (and changes nothing) if local edits are in the way.
+            git.run(["merge", "--ff-only", &b.upstream_ref])
+                .map_err(|e| Error::msg(format!("fast-forward non riuscito: {}", short_error(&e))))?;
+            Ok(behind)
+        }
+        (ahead, behind) => Err(Error::msg(diverged(&b.upstream, ahead, behind))),
+    }
+}
+
+fn diverged(upstream: &str, ahead: u32, behind: u32) -> String {
+    format!("divergente da {upstream} ({ahead} commit avanti, {behind} indietro)")
+}
+
+/// Move a branch that is not checked out from `local` to `target`, a descendant of it,
+/// without touching HEAD, index or working tree. Fails if the branch no longer points to `local`.
+fn fast_forward_ref(git: &Git, branch: &str, local: &str, target: &str, upstream: &str) -> Result<()> {
+    let msg = format!("pull: fast-forward da {upstream}");
+    git.run(["update-ref", "-m", &msg, &format!("refs/heads/{branch}"), target, local])?;
+    Ok(())
+}
+
+/// First meaningful line of an error, for one-line summaries. A line introducing a
+/// list ("…would be overwritten by merge:") keeps the indented items that follow it.
+fn short_error(e: &Error) -> String {
+    let text = match e {
+        Error::Git { message, .. } => message.clone(),
+        other => other.to_string(),
+    };
+    let mut lines = text.lines().skip_while(|l| l.trim().is_empty());
+    let first = lines.next().unwrap_or_default().trim();
+    let mut out = first.strip_prefix("error: ").or_else(|| first.strip_prefix("fatal: ")).unwrap_or(first).to_string();
+    if out.ends_with(':') {
+        let items: Vec<&str> = lines.take_while(|l| l.starts_with(char::is_whitespace)).map(str::trim).collect();
+        if !items.is_empty() {
+            out = format!("{out} {}", items.join(", "));
+        }
+    }
+    out
 }
 
 fn commit_of(git: &Git, rev: &str) -> Result<String> {
     Ok(git.run(["rev-parse", "--verify", "--quiet", &format!("{rev}^{{commit}}")])?.trim().to_string())
 }
 
-/// Number of commits reachable from `to` but not from `from`.
-fn count_between(git: &Git, from: &str, to: &str) -> Result<u32> {
-    let n = git.run(["rev-list", "--count", &format!("{from}..{to}")])?;
-    n.trim().parse().map_err(|_| Error::msg(format!("rev-list: risposta inattesa {n:?}")))
+/// Commits only in `local` and commits only in `target`: (ahead, behind).
+fn ahead_behind(git: &Git, local: &str, target: &str) -> Result<(u32, u32)> {
+    if local == target {
+        return Ok((0, 0));
+    }
+    let out = git.run(["rev-list", "--left-right", "--count", &format!("{local}...{target}")])?;
+    let parsed = out.split_whitespace().map(str::parse::<u32>).collect::<std::result::Result<Vec<_>, _>>();
+    match parsed.as_deref() {
+        Ok([ahead, behind]) => Ok((*ahead, *behind)),
+        _ => Err(Error::msg(format!("rev-list: risposta inattesa {out:?}"))),
+    }
+}
+
+/// Branch refs checked out in a worktree (this one included), with the worktree path.
+fn checked_out(git: &Git) -> Result<HashMap<String, String>> {
+    let out = git.run(["worktree", "list", "--porcelain"])?;
+    let mut map = HashMap::new();
+    let mut path = String::new();
+    for line in out.lines() {
+        if let Some(p) = line.strip_prefix("worktree ") {
+            path = p.to_string();
+        } else if let Some(r) = line.strip_prefix("branch ") {
+            map.insert(r.to_string(), path.clone());
+        }
+    }
+    Ok(map)
 }
 
 /// Path of the worktree (this one included) that has `branch_ref` checked out, if any.
 fn worktree_of(git: &Git, branch_ref: &str) -> Result<Option<String>> {
-    let out = git.run(["worktree", "list", "--porcelain"])?;
-    let mut path = None;
-    for line in out.lines() {
-        if let Some(p) = line.strip_prefix("worktree ") {
-            path = Some(p.to_string());
-        } else if line.strip_prefix("branch ") == Some(branch_ref) {
-            return Ok(path);
-        }
-    }
-    Ok(None)
+    Ok(checked_out(git)?.remove(branch_ref))
 }
 
 fn current_branch(git: &Git) -> Result<String> {

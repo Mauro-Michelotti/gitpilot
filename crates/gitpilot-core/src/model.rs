@@ -268,3 +268,29 @@ impl OpOutcome {
         OpOutcome { conflicts: true, message: message.into() }
     }
 }
+
+/// Result of fast-forwarding every local branch to its upstream (`ops::pull_all_branches`).
+#[derive(Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PullAllReport {
+    pub updated: Vec<UpdatedBranch>,
+    /// Nothing to take from the upstream: same commit, or only ahead of it.
+    pub up_to_date: Vec<String>,
+    /// Left untouched (diverged, in another worktree, upstream gone, fetch failed…).
+    pub skipped: Vec<SkippedBranch>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatedBranch {
+    pub name: String,
+    /// Commits gained from the upstream.
+    pub commits: u32,
+}
+
+#[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SkippedBranch {
+    pub name: String,
+    pub reason: String,
+}

@@ -77,6 +77,8 @@ export interface PromptSpec {
   fields: PromptField[];
   confirmLabel?: string;
   danger?: boolean;
+  /** Information only: a single button to close the dialog. */
+  alert?: boolean;
   resolve: (v: PromptValues | null) => void;
 }
 

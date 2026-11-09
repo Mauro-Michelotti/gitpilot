@@ -243,6 +243,17 @@ pub async fn pull_branch(app: AppHandle, state: State<'_, AppState>, path: Strin
 }
 
 #[tauri::command]
+pub async fn pull_all_branches(app: AppHandle, state: State<'_, AppState>, path: String, op_id: String) -> CmdResult<PullAllReport> {
+    let dir = state.config_dir.clone();
+    blocking(move || {
+        let auth = AccountStore::new(&dir).net_auth();
+        let mut progress = progress_emitter(app, op_id);
+        ops::pull_all_branches(&git(&path), &auth, &mut progress)
+    })
+    .await
+}
+
+#[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn push(
     app: AppHandle,
