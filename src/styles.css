@@ -718,12 +718,12 @@ textarea {
   flex-direction: column;
   min-height: 0;
   flex: 1;
-  --refs-w: 190px;
 }
+/* Minimum total 760px, as .gr/.graph-head min-width (graph column at least 64px). */
 .graph-head,
 .gr {
   display: grid;
-  grid-template-columns: var(--refs-w) var(--graph-w) minmax(200px, 1fr) 150px 110px 70px;
+  grid-template-columns: var(--refs-w) var(--graph-w) minmax(176px, 1fr) 150px 110px 70px;
   align-items: center;
 }
 .graph-head {
@@ -803,6 +803,9 @@ textarea {
   min-width: 0;
   z-index: 1;
   cursor: pointer;
+}
+.chip svg {
+  flex-shrink: 0;
 }
 .chip.current {
   font-weight: 700;
@@ -1055,9 +1058,6 @@ textarea {
 .commit-refs .chip {
   max-width: 100%;
   white-space: nowrap;
-}
-.commit-refs .chip svg {
-  flex-shrink: 0;
 }
 .person {
   display: flex;
