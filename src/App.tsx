@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import * as A from "./actions";
+import { useT } from "./i18n";
 import { useActiveRepo, useStore, type RepoTab } from "./store";
 import { ConflictView } from "./components/ConflictView";
 import { DetailPanel } from "./components/DetailPanel";
@@ -96,6 +97,7 @@ const RIGHT_MIN = 280;
 const RIGHT_MAX = 700;
 
 function RepoScreen({ tab }: { tab: RepoTab }) {
+  const t = useT();
   const [left, setLeft, saveLeft] = usePersistedWidth("gp.leftW", 260, LEFT_MIN, LEFT_MAX);
   const [right, setRight, saveRight] = usePersistedWidth("gp.rightW", 380, RIGHT_MIN, RIGHT_MAX);
   const view = tab.view;
@@ -105,7 +107,7 @@ function RepoScreen({ tab }: { tab: RepoTab }) {
       <div className="empty big">
         <p className="error-text">{tab.error}</p>
         <button className="btn" onClick={() => A.closeTab(tab.path)}>
-          Chiudi scheda
+          {t("app.closeTab")}
         </button>
       </div>
     );
@@ -178,7 +180,7 @@ export default function App() {
       const st = useStore.getState();
       if (e.key === "F5" || (mod && e.key.toLowerCase() === "r")) {
         e.preventDefault();
-        if (st.active) A.refresh(st.active, { full: true });
+        if (st.active) A.reload(st.active);
       } else if (mod && e.key.toLowerCase() === "o") {
         e.preventDefault();
         A.pickAndOpenRepo();

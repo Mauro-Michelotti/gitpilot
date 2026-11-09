@@ -1,11 +1,13 @@
 import { CloudDownload, FolderGit2, FolderOpen, FolderPlus, Settings as Gear, X } from "lucide-react";
 import * as A from "../actions";
 import { api } from "../api";
+import { useT } from "../i18n";
 import { useStore } from "../store";
 import { relativeTime } from "../util";
 import { Logo, ProviderIcon } from "./icons";
 
 export function Home() {
+  const t = useT();
   const settings = useStore((s) => s.settings);
   const accounts = useStore((s) => s.accounts);
   const info = useStore((s) => s.info);
@@ -14,18 +16,18 @@ export function Home() {
 
   const initRepo = async () => {
     const v = await A.prompt({
-      title: "Nuovo repository",
+      title: t("home.new.title"),
       fields: [
-        { name: "parent", label: "Cartella che lo conterrà", type: "folder", value: settings?.cloneDir ?? info?.homeDir ?? "", required: true, mono: true },
-        { name: "name", label: "Nome", placeholder: "mio-progetto", required: true, mono: true },
-        { name: "branch", label: "Branch iniziale", value: "main", mono: true },
-        { name: "gitflow", label: "Inizializza anche Git Flow", type: "checkbox", value: false },
+        { name: "parent", label: t("home.new.parent"), type: "folder", value: settings?.cloneDir ?? info?.homeDir ?? "", required: true, mono: true },
+        { name: "name", label: t("home.new.name"), placeholder: t("home.new.namePlaceholder"), required: true, mono: true },
+        { name: "branch", label: t("home.new.branch"), value: "main", mono: true },
+        { name: "gitflow", label: t("home.new.gitflow"), type: "checkbox", value: false },
       ],
-      confirmLabel: "Crea",
+      confirmLabel: t("home.new.create"),
     });
     if (!v) return;
     const dest = `${String(v.parent).replace(/[\\/]+$/, "")}/${String(v.name).trim()}`;
-    const root = await A.run("Crea repository", () => api.repoInit(dest, String(v.branch || "main")), { path: null });
+    const root = await A.run(t("home.new.busy"), () => api.repoInit(dest, String(v.branch || "main")), { path: null });
     if (root) {
       await A.openRepo(root);
       if (v.gitflow) A.gitflowInit(root);
@@ -49,25 +51,25 @@ export function Home() {
         <div className="home-actions">
           <button className="home-card" onClick={A.pickAndOpenRepo}>
             <FolderOpen size={22} />
-            <strong>Apri</strong>
-            <span className="muted">un repository esistente</span>
+            <strong>{t("home.open")}</strong>
+            <span className="muted">{t("home.open.hint")}</span>
           </button>
           <button className="home-card" onClick={() => set({ modal: "clone" })}>
             <CloudDownload size={22} />
-            <strong>Clona</strong>
-            <span className="muted">da URL, GitHub o GitLab</span>
+            <strong>{t("home.clone")}</strong>
+            <span className="muted">{t("home.clone.hint")}</span>
           </button>
           <button className="home-card" onClick={initRepo}>
             <FolderPlus size={22} />
-            <strong>Crea</strong>
-            <span className="muted">un nuovo repository</span>
+            <strong>{t("home.create")}</strong>
+            <span className="muted">{t("home.create.hint")}</span>
           </button>
         </div>
 
         <div className="home-cols">
           <div className="home-recent">
-            <h3>Recenti</h3>
-            {recent.length === 0 && <p className="muted">Nessun repository aperto di recente.</p>}
+            <h3>{t("home.recent")}</h3>
+            {recent.length === 0 && <p className="muted">{t("home.recent.empty")}</p>}
             {recent.map((r) => (
               <div key={r.path} className="recent-row" onClick={() => A.openRepo(r.path)} title={r.path}>
                 <FolderGit2 size={16} className="muted" />
@@ -78,7 +80,7 @@ export function Home() {
                 <span className="muted small">{relativeTime(r.lastOpened)}</span>
                 <button
                   className="icon-btn"
-                  title="Rimuovi dai recenti"
+                  title={t("home.recent.remove")}
                   onClick={(e) => {
                     e.stopPropagation();
                     removeRecent(r.path);
@@ -90,8 +92,8 @@ export function Home() {
             ))}
           </div>
           <div className="home-accounts">
-            <h3>Account</h3>
-            {accounts.length === 0 && <p className="muted">Collega GitHub o GitLab per clonare i tuoi repository e gestire pull/merge request.</p>}
+            <h3>{t("home.accounts")}</h3>
+            {accounts.length === 0 && <p className="muted">{t("home.accounts.empty")}</p>}
             {accounts.map((a) => (
               <div key={a.id} className="account-row">
                 <ProviderIcon kind={a.kind} />
@@ -100,7 +102,7 @@ export function Home() {
               </div>
             ))}
             <button className="btn" onClick={() => set({ modal: "preferences" })}>
-              <Gear size={14} /> Gestisci account
+              <Gear size={14} /> {t("home.accounts.manage")}
             </button>
           </div>
         </div>

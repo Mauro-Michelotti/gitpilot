@@ -77,6 +77,8 @@ export interface PromptSpec {
   fields: PromptField[];
   confirmLabel?: string;
   danger?: boolean;
+  /** Information only: a single button to close the dialog. */
+  alert?: boolean;
   resolve: (v: PromptValues | null) => void;
 }
 
@@ -89,6 +91,8 @@ interface State {
   tabs: string[];
   active: string | null;
   repos: Record<string, RepoTab>;
+  /** Repositories with a refresh in progress (kept outside RepoTab so toggling it does not re-render the repo screen). */
+  refreshing: Record<string, true>;
   toasts: Toast[];
   menu: { x: number; y: number; items: MenuItem[] } | null;
   prompt: PromptSpec | null;
@@ -127,6 +131,7 @@ export const useStore = create<State>((set) => ({
   tabs: [],
   active: null,
   repos: {},
+  refreshing: {},
   toasts: [],
   menu: null,
   prompt: null,

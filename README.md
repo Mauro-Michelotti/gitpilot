@@ -15,7 +15,9 @@ GPG, LFS e `includeIf` funzionano esattamente come da terminale.
 - **Working copy**: stage/unstage per file o per **blocco** (hunk), scarta, commit con sommario/descrizione,
   amend; diff unificato o affiancato.
 - **Branch, tag, stash, remote**: crea, rinomina, elimina (anche sul remote), upstream, push/pull/fetch
-  (pull fast-forward / solo ff / rebase, force push con `--force-with-lease`).
+  (pull fast-forward / solo ff / rebase, force push con `--force-with-lease`); pull in fast-forward
+  anche dei branch locali non in checkout, senza cambiare branch, e di tutti i branch locali insieme
+  (un fetch per remote, riepilogo dei branch aggiornati e di quelli saltati con il motivo).
 - **Merge, rebase, cherry-pick, revert, reset** (soft/mixed/hard) da menu contestuale.
 - **Conflitti**: banner di stato con Continua/Salta/Annulla, editor a due lati + base con risultato
   modificabile, "tutto nostro/loro", conflitti di eliminazione.
@@ -25,13 +27,15 @@ GPG, LFS e `includeIf` funzionano esattamente come da terminale.
 - **GitHub / GitLab**: account con personal access token (salvato nel portachiavi di sistema:
   GNOME Keyring/KWallet, Portachiavi macOS), lista PR/MR del repo, creazione PR/MR, clone dai tuoi repo.
   Il token viene usato anche per autenticare pull/push via HTTPS.
+- **Lingua**: italiano o inglese (Preferenze → Lingua, oppure come il sistema), con cambio immediato;
+  seguono la lingua anche i messaggi di GitPilot e quelli di git.
 
 ## Struttura
 
 ```
 crates/gitpilot-core/   logica (git, grafo, diff, conflitti, GitFlow, provider) — testabile da sola
 src-tauri/              shell Tauri: comandi esposti alla UI
-src/                    UI React (actions.ts = logica UI, components/ = viste)
+src/                    UI React (actions.ts = logica UI, components/ = viste, locales/ = testi it/en)
 ```
 
 ## Requisiti

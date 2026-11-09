@@ -26,19 +26,19 @@ impl Error {
 
 impl From<reqwest::Error> for Error {
     fn from(e: reqwest::Error) -> Self {
-        Error::Api(format!("errore di rete: {e}"))
+        Error::Api(crate::tr!("errore di rete: {e}", "network error: {e}"))
     }
 }
 
 impl From<serde_json::Error> for Error {
     fn from(e: serde_json::Error) -> Self {
-        Error::Msg(format!("JSON non valido: {e}"))
+        Error::Msg(crate::tr!("JSON non valido: {e}", "invalid JSON: {e}"))
     }
 }
 
 impl From<keyring::Error> for Error {
     fn from(e: keyring::Error) -> Self {
-        Error::Msg(format!("portachiavi di sistema: {e}"))
+        Error::Msg(crate::tr!("portachiavi di sistema: {e}", "system keyring: {e}"))
     }
 }
 

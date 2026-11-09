@@ -1,12 +1,14 @@
 //! Write operations on a repository.
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use crate::diff;
 use crate::error::{Error, Result};
 use crate::git::Git;
-use crate::model::OpOutcome;
+use crate::model::{OpOutcome, PullAllReport, SkippedBranch, UpdatedBranch};
 use crate::repo;
+use crate::tr;
 
 /// `http.<url>.extraheader` entries to authenticate HTTPS remotes (see `accounts::auth_config`).
 pub type NetAuth = Vec<(String, String)>;
@@ -37,7 +39,7 @@ fn has_conflicts(git: &Git) -> bool {
 fn conflict_aware(git: &Git, args: &[&str], ok_msg: &str) -> Result<OpOutcome> {
     match git.run(args) {
         Ok(_) => Ok(OpOutcome::ok(ok_msg)),
-        Err(e) if has_conflicts(git) => Ok(OpOutcome::conflicts(format!("Conflitti da risolvere. {e}"))),
+        Err(e) if has_conflicts(git) => Ok(OpOutcome::conflicts(tr!("Conflitti da risolvere. {e}", "Conflicts to resolve. {e}"))),
         Err(e) => Err(e),
     }
 }
@@ -45,7 +47,7 @@ fn conflict_aware(git: &Git, args: &[&str], ok_msg: &str) -> Result<OpOutcome> {
 fn conflict_aware_progress(git: &Git, args: &[&str], ok_msg: &str, progress: &mut dyn FnMut(&str)) -> Result<OpOutcome> {
     match git.run_progress(args, progress) {
         Ok(_) => Ok(OpOutcome::ok(ok_msg)),
-        Err(e) if has_conflicts(git) => Ok(OpOutcome::conflicts(format!("Conflitti da risolvere. {e}"))),
+        Err(e) if has_conflicts(git) => Ok(OpOutcome::conflicts(tr!("Conflitti da risolvere. {e}", "Conflicts to resolve. {e}"))),
         Err(e) => Err(e),
     }
 }
@@ -61,9 +63,9 @@ pub fn init(path: &Path, default_branch: &str) -> Result<()> {
 
 pub fn clone(url: &str, dest: &Path, auth: &NetAuth, progress: &mut dyn FnMut(&str)) -> Result<()> {
     if dest.exists() && std::fs::read_dir(dest).map(|mut d| d.next().is_some()).unwrap_or(false) {
-        return Err(Error::msg(format!("la cartella {} esiste e non è vuota", dest.display())));
+        return Err(Error::msg(tr!("la cartella {} esiste e non è vuota", "folder {} already exists and is not empty", dest.display())));
     }
-    let parent = dest.parent().ok_or_else(|| Error::msg("destinazione non valida"))?;
+    let parent = dest.parent().ok_or_else(|| Error::msg(tr!("destinazione non valida", "invalid destination")))?;
     std::fs::create_dir_all(parent)?;
     let g = networked(&Git::new(parent), auth);
     let dest_s = dest.to_string_lossy().to_string();
@@ -141,12 +143,12 @@ pub fn apply_hunk(git: &Git, path: &str, old_path: Option<&str>, hunk_header: &s
     let staged = action == "unstage";
     let fd = repo::working_diff(git, path, old_path, staged, false)?;
     let patch = diff::single_hunk_patch(&fd, hunk_header)
-        .ok_or_else(|| Error::msg("il file è cambiato nel frattempo: aggiorna e riprova"))?;
+        .ok_or_else(|| Error::msg(tr!("il file è cambiato nel frattempo: aggiorna e riprova", "the file has changed in the meantime: refresh and try again")))?;
     let args: &[&str] = match action {
         "stage" => &["apply", "--cached", "--whitespace=nowarn", "-"],
         "unstage" => &["apply", "--cached", "-R", "--whitespace=nowarn", "-"],
         "discard" => &["apply", "-R", "--whitespace=nowarn", "-"],
-        _ => return Err(Error::msg(format!("azione hunk sconosciuta: {action}"))),
+        _ => return Err(Error::msg(tr!("azione hunk sconosciuta: {action}", "unknown hunk action: {action}"))),
     };
     git.run_stdin(args, patch.as_bytes())?;
     Ok(())
@@ -157,7 +159,7 @@ pub fn apply_hunk(git: &Git, path: &str, old_path: Option<&str>, hunk_header: &s
 pub fn commit(git: &Git, message: &str, amend: bool) -> Result<String> {
     let message = message.trim();
     if message.is_empty() && !amend {
-        return Err(Error::msg("il messaggio di commit è vuoto"));
+        return Err(Error::msg(tr!("il messaggio di commit è vuoto", "the commit message is empty")));
     }
     let mut args = vec!["commit", "--cleanup=strip"];
     if amend {
@@ -192,13 +194,265 @@ pub fn pull(git: &Git, mode: &str, auth: &NetAuth, progress: &mut dyn FnMut(&str
         "rebase" => "--rebase",
         _ => "--no-rebase",
     };
-    conflict_aware_progress(&g, &["pull", "--progress", "--no-edit", flag], "Pull completato", progress)
+    conflict_aware_progress(&g, &["pull", "--progress", "--no-edit", flag], &tr!("Pull completato", "Pull completed"), progress)
+}
+
+/// Update a local branch that is not checked out to its upstream, without switching to it.
+///
+/// Without a working copy only a fast-forward is possible: the branch ref is moved
+/// (atomically, from the expected old value) and HEAD, index and working tree are
+/// never touched. A diverged branch is left as it is, with an explanation.
+pub fn pull_branch(git: &Git, branch: &str, auth: &NetAuth, progress: &mut dyn FnMut(&str)) -> Result<String> {
+    let local_ref = format!("refs/heads/{branch}");
+    let local = commit_of(git, &local_ref).map_err(|_| Error::msg(tr!("il branch {branch} non esiste", "branch {branch} does not exist")))?;
+    if current_branch(git).ok().as_deref() == Some(branch) {
+        return Err(Error::msg(tr!("{branch} è il branch corrente: usa Pull dalla toolbar", "{branch} is the current branch: use Pull in the toolbar")));
+    }
+    if let Some(wt) = worktree_of(git, &local_ref)? {
+        return Err(Error::msg(tr!("{branch} è in checkout nel worktree {wt}: aggiornalo da lì", "{branch} is checked out in worktree {wt}: update it from there")));
+    }
+    // A rebase/bisect detaches HEAD but still owns its branch: moving it would break the operation.
+    let state = repo::repo_state(&repo::git_dir(git)?);
+    if state.kind == "rebase" || state.kind == "bisect" {
+        return Err(Error::msg(tr!(
+            "{} in corso: completalo o annullalo prima del pull di {branch}",
+            "{} in progress: complete or abort it before pulling {branch}",
+            state.kind
+        )));
+    }
+    let (Some(remote), Some(merge)) =
+        (config_get(git, &format!("branch.{branch}.remote")), config_get(git, &format!("branch.{branch}.merge")))
+    else {
+        return Err(Error::msg(tr!("{branch} non ha un upstream: impostalo prima del pull", "{branch} has no upstream: set one before pulling")));
+    };
+    let short = merge.strip_prefix("refs/heads/").unwrap_or(&merge);
+    let upstream = if remote == "." { short.to_string() } else { format!("{remote}/{short}") };
+
+    // Also refreshes the remote-tracking branch, so ahead/behind stay correct.
+    networked(git, auth).run_progress(["fetch", "--progress", &remote, &merge], progress)?;
+    let target = commit_of(git, "FETCH_HEAD")?;
+
+    match ahead_behind(git, &local, &target)? {
+        (0, 0) => Ok(tr!("{branch} è già aggiornato", "{branch} is already up to date")),
+        (ahead, 0) => Ok(tr!(
+            "{branch} è avanti di {n} rispetto a {upstream}: niente da aggiornare",
+            "{branch} is {n} ahead of {upstream}: nothing to update",
+            n = n_commits(ahead)
+        )),
+        (0, behind) => {
+            fast_forward_ref(git, branch, &local, &target, &upstream)?;
+            Ok(tr!(
+                "{branch} aggiornato in fast-forward a {upstream} ({n})",
+                "{branch} fast-forwarded to {upstream} ({n})",
+                n = n_commits(behind)
+            ))
+        }
+        (ahead, behind) => Err(Error::msg(tr!(
+            "{branch} è {}: fai checkout di {branch} per unire con merge o rebase",
+            "{branch} has {}: check out {branch} to merge or rebase it",
+            diverged(&upstream, ahead, behind)
+        ))),
+    }
+}
+
+/// Fast-forward every local branch that has an upstream, fetching each remote only once.
+///
+/// Branches that cannot simply follow their upstream (diverged, checked out in another
+/// worktree, upstream deleted on the remote, remote not reachable) are left untouched and
+/// reported with the reason. The current branch is fast-forwarded too, working tree
+/// included, when that is possible: no merge or rebase is ever started, so the operation
+/// never stops on conflicts.
+pub fn pull_all_branches(git: &Git, auth: &NetAuth, progress: &mut dyn FnMut(&str)) -> Result<PullAllReport> {
+    // A rebase/bisect detaches HEAD but still owns its branch: moving it would break the operation.
+    let state = repo::repo_state(&repo::git_dir(git)?);
+    if state.kind == "rebase" || state.kind == "bisect" {
+        return Err(Error::msg(tr!(
+            "{} in corso: completalo o annullalo prima del pull",
+            "{} in progress: complete or abort it before pulling",
+            state.kind
+        )));
+    }
+    let mut branches = tracked_branches(git)?;
+    // Branches following another local branch go last, so they see it already updated.
+    branches.sort_by_key(|b| b.remote == ".");
+
+    let mut remotes: Vec<&str> = branches.iter().map(|b| b.remote.as_str()).filter(|r| *r != ".").collect();
+    remotes.sort_unstable();
+    remotes.dedup();
+    let g = networked(git, auth);
+    let mut unreachable = HashMap::new();
+    for remote in remotes {
+        // Like `git pull`: tags are only auto-followed, so a moved tag cannot fail the fetch.
+        if let Err(e) = g.run_progress(["fetch", "--progress", "--prune", remote], progress) {
+            unreachable.insert(remote, short_error(&e));
+        }
+    }
+
+    let current = current_branch(git).ok();
+    let worktrees = checked_out(git)?;
+    let mut report = PullAllReport::default();
+    for b in &branches {
+        let outcome = if let Some(e) = unreachable.get(b.remote.as_str()) {
+            Err(Error::msg(tr!("fetch di {} non riuscito: {e}", "fetch from {} failed: {e}", b.remote)))
+        } else {
+            let is_current = current.as_deref() == Some(b.name.as_str());
+            let in_worktree = if is_current { None } else { worktrees.get(&format!("refs/heads/{}", b.name)) };
+            match in_worktree {
+                Some(wt) => Err(Error::msg(tr!("in checkout nel worktree {wt}", "checked out in worktree {wt}"))),
+                None => pull_tracked(git, b, is_current, &state.kind),
+            }
+        };
+        match outcome {
+            Ok(0) => report.up_to_date.push(b.name.clone()),
+            Ok(commits) => report.updated.push(UpdatedBranch { name: b.name.clone(), commits }),
+            Err(e) => report.skipped.push(SkippedBranch { name: b.name.clone(), reason: short_error(&e) }),
+        }
+    }
+    Ok(report)
+}
+
+/// A local branch with an upstream, as configured by `branch.<name>.remote/merge`.
+struct TrackedBranch {
+    name: String,
+    oid: String,
+    /// Remote name, `.` for a local upstream.
+    remote: String,
+    /// Full ref of the upstream (`refs/remotes/origin/main`, `refs/heads/main`).
+    upstream_ref: String,
+    /// Short name of the upstream (`origin/main`), for messages.
+    upstream: String,
+}
+
+fn tracked_branches(git: &Git) -> Result<Vec<TrackedBranch>> {
+    let out = git.run([
+        "for-each-ref",
+        "--format=%(refname:strip=2)%1f%(objectname)%1f%(upstream:remotename)%1f%(upstream)%1f%(upstream:short)",
+        "refs/heads",
+    ])?;
+    Ok(out
+        .lines()
+        .filter_map(|line| {
+            let f: Vec<&str> = line.split('\x1f').collect();
+            let [name, oid, remote, upstream_ref, upstream] = f[..] else { return None };
+            (!remote.is_empty() && !upstream_ref.is_empty()).then(|| TrackedBranch {
+                name: name.to_string(),
+                oid: oid.to_string(),
+                remote: remote.to_string(),
+                upstream_ref: upstream_ref.to_string(),
+                upstream: upstream.to_string(),
+            })
+        })
+        .collect())
+}
+
+/// Bring one branch to its (already fetched) upstream. Returns the number of commits
+/// gained, 0 when there was nothing to take; an error means the branch was left as it was.
+fn pull_tracked(git: &Git, b: &TrackedBranch, is_current: bool, repo_state: &str) -> Result<u32> {
+    let target = commit_of(git, &b.upstream_ref).map_err(|_| {
+        Error::msg(if b.remote == "." {
+            tr!("il branch upstream {} non esiste più", "upstream branch {} no longer exists", b.upstream)
+        } else {
+            tr!("{} eliminato sul remote", "{} deleted on the remote", b.upstream)
+        })
+    })?;
+    match ahead_behind(git, &b.oid, &target)? {
+        (_, 0) => Ok(0),
+        (0, behind) if !is_current => {
+            fast_forward_ref(git, &b.name, &b.oid, &target, &b.upstream)?;
+            Ok(behind)
+        }
+        (0, _) if repo_state != "none" => Err(Error::msg(tr!("{repo_state} in corso", "{repo_state} in progress"))),
+        (0, behind) => {
+            // Updates the working tree too; git refuses (and changes nothing) if local edits are in the way.
+            git.run(["merge", "--ff-only", &b.upstream_ref])
+                .map_err(|e| Error::msg(tr!("fast-forward non riuscito: {}", "fast-forward failed: {}", short_error(&e))))?;
+            Ok(behind)
+        }
+        (ahead, behind) => Err(Error::msg(diverged(&b.upstream, ahead, behind))),
+    }
+}
+
+fn diverged(upstream: &str, ahead: u32, behind: u32) -> String {
+    tr!("divergente da {upstream} ({ahead} commit avanti, {behind} indietro)", "diverged from {upstream} ({ahead} ahead, {behind} behind)")
+}
+
+/// "N commit" in Italian (invariable), "1 commit" / "N commits" in English.
+fn n_commits(n: u32) -> String {
+    if n == 1 {
+        "1 commit".into()
+    } else {
+        tr!("{n} commit", "{n} commits")
+    }
+}
+
+/// Move a branch that is not checked out from `local` to `target`, a descendant of it,
+/// without touching HEAD, index or working tree. Fails if the branch no longer points to `local`.
+fn fast_forward_ref(git: &Git, branch: &str, local: &str, target: &str, upstream: &str) -> Result<()> {
+    let msg = format!("pull: fast-forward da {upstream}");
+    git.run(["update-ref", "-m", &msg, &format!("refs/heads/{branch}"), target, local])?;
+    Ok(())
+}
+
+/// First meaningful line of an error, for one-line summaries. A line introducing a
+/// list ("…would be overwritten by merge:") keeps the indented items that follow it.
+fn short_error(e: &Error) -> String {
+    let text = match e {
+        Error::Git { message, .. } => message.clone(),
+        other => other.to_string(),
+    };
+    let mut lines = text.lines().skip_while(|l| l.trim().is_empty());
+    let first = lines.next().unwrap_or_default().trim();
+    let mut out = first.strip_prefix("error: ").or_else(|| first.strip_prefix("fatal: ")).unwrap_or(first).to_string();
+    if out.ends_with(':') {
+        let items: Vec<&str> = lines.take_while(|l| l.starts_with(char::is_whitespace)).map(str::trim).collect();
+        if !items.is_empty() {
+            out = format!("{out} {}", items.join(", "));
+        }
+    }
+    out
+}
+
+fn commit_of(git: &Git, rev: &str) -> Result<String> {
+    Ok(git.run(["rev-parse", "--verify", "--quiet", &format!("{rev}^{{commit}}")])?.trim().to_string())
+}
+
+/// Commits only in `local` and commits only in `target`: (ahead, behind).
+fn ahead_behind(git: &Git, local: &str, target: &str) -> Result<(u32, u32)> {
+    if local == target {
+        return Ok((0, 0));
+    }
+    let out = git.run(["rev-list", "--left-right", "--count", &format!("{local}...{target}")])?;
+    let parsed = out.split_whitespace().map(str::parse::<u32>).collect::<std::result::Result<Vec<_>, _>>();
+    match parsed.as_deref() {
+        Ok([ahead, behind]) => Ok((*ahead, *behind)),
+        _ => Err(Error::msg(tr!("rev-list: risposta inattesa {out:?}", "rev-list: unexpected output {out:?}"))),
+    }
+}
+
+/// Branch refs checked out in a worktree (this one included), with the worktree path.
+fn checked_out(git: &Git) -> Result<HashMap<String, String>> {
+    let out = git.run(["worktree", "list", "--porcelain"])?;
+    let mut map = HashMap::new();
+    let mut path = String::new();
+    for line in out.lines() {
+        if let Some(p) = line.strip_prefix("worktree ") {
+            path = p.to_string();
+        } else if let Some(r) = line.strip_prefix("branch ") {
+            map.insert(r.to_string(), path.clone());
+        }
+    }
+    Ok(map)
+}
+
+/// Path of the worktree (this one included) that has `branch_ref` checked out, if any.
+fn worktree_of(git: &Git, branch_ref: &str) -> Result<Option<String>> {
+    Ok(checked_out(git)?.remove(branch_ref))
 }
 
 fn current_branch(git: &Git) -> Result<String> {
     let out = git.output(["symbolic-ref", "-q", "--short", "HEAD"])?;
     if !out.status.success() {
-        return Err(Error::msg("HEAD è staccato: crea o seleziona un branch"));
+        return Err(Error::msg(tr!("HEAD è staccato: crea o seleziona un branch", "HEAD is detached: create or select a branch")));
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
@@ -213,7 +467,7 @@ fn default_remote(git: &Git) -> Result<String> {
     if remotes.iter().any(|(n, _)| n == "origin") {
         return Ok("origin".into());
     }
-    remotes.into_iter().next().map(|(n, _)| n).ok_or_else(|| Error::msg("nessun remote configurato"))
+    remotes.into_iter().next().map(|(n, _)| n).ok_or_else(|| Error::msg(tr!("nessun remote configurato", "no remote configured")))
 }
 
 /// Push `branch` (default: current). Without an upstream the branch is
@@ -241,7 +495,7 @@ pub fn push(
         (Some(r), Some(m), None) if r != "." => {
             args.push(r.clone());
             args.push(format!("refs/heads/{branch}:{m}"));
-            format!("Push di {branch} su {r}")
+            tr!("Push di {branch} su {r}", "Pushed {branch} to {r}")
         }
         (_, _, r) => {
             let r = match r {
@@ -251,7 +505,7 @@ pub fn push(
             args.push("--set-upstream".into());
             args.push(r.clone());
             args.push(format!("refs/heads/{branch}:refs/heads/{branch}"));
-            format!("Branch {branch} pubblicato su {r}")
+            tr!("Branch {branch} pubblicato su {r}", "Branch {branch} published to {r}")
         }
     };
     let a: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -293,7 +547,7 @@ pub fn checkout(git: &Git, branch: &str) -> Result<()> {
 
 /// Check out a remote branch (`origin/feature/x`), creating or reusing the local one.
 pub fn checkout_remote(git: &Git, full: &str) -> Result<String> {
-    let (_, name) = full.split_once('/').ok_or_else(|| Error::msg("nome remote branch non valido"))?;
+    let (_, name) = full.split_once('/').ok_or_else(|| Error::msg(tr!("nome remote branch non valido", "invalid remote branch name")))?;
     let exists = git.succeeds(["show-ref", "--verify", "--quiet", &format!("refs/heads/{name}")])?;
     if exists {
         git.run(["switch", name])?;
@@ -310,7 +564,7 @@ pub fn checkout_commit(git: &Git, hash: &str) -> Result<()> {
 
 pub fn create_branch(git: &Git, name: &str, start: Option<&str>, checkout: bool) -> Result<()> {
     git.run(["check-ref-format", "--branch", name])
-        .map_err(|_| Error::msg(format!("nome branch non valido: {name}")))?;
+        .map_err(|_| Error::msg(tr!("nome branch non valido: {name}", "invalid branch name: {name}")))?;
     let start = start.unwrap_or("HEAD");
     if checkout {
         git.run(["switch", "-c", name, start])?;
@@ -366,8 +620,8 @@ pub fn stash_save(git: &Git, message: &str, include_untracked: bool) -> Result<(
 
 pub fn stash_apply(git: &Git, index: u32, pop: bool) -> Result<OpOutcome> {
     let r = format!("stash@{{{index}}}");
-    let msg = if pop { "Stash applicato e rimosso" } else { "Stash applicato" };
-    conflict_aware(git, &["stash", if pop { "pop" } else { "apply" }, &r], msg)
+    let msg = if pop { tr!("Stash applicato e rimosso", "Stash applied and dropped") } else { tr!("Stash applicato", "Stash applied") };
+    conflict_aware(git, &["stash", if pop { "pop" } else { "apply" }, &r], &msg)
 }
 
 pub fn stash_drop(git: &Git, index: u32) -> Result<()> {
@@ -388,15 +642,15 @@ pub fn merge(git: &Git, target: &str, mode: &str) -> Result<OpOutcome> {
     }
     args.push(target);
     let msg = if mode == "squash" {
-        format!("Modifiche di {target} preparate nello stage: completa con un commit")
+        tr!("Modifiche di {target} preparate nello stage: completa con un commit", "Changes from {target} staged: complete them with a commit")
     } else {
-        format!("{target} unito")
+        tr!("{target} unito", "{target} merged")
     };
     conflict_aware(git, &args, &msg)
 }
 
 pub fn rebase(git: &Git, onto: &str) -> Result<OpOutcome> {
-    conflict_aware(git, &["rebase", onto], &format!("Rebase su {onto} completato"))
+    conflict_aware(git, &["rebase", onto], &tr!("Rebase su {onto} completato", "Rebased onto {onto}"))
 }
 
 fn is_merge_commit(git: &Git, hash: &str) -> bool {
@@ -409,7 +663,7 @@ pub fn cherry_pick(git: &Git, hash: &str) -> Result<OpOutcome> {
         args.extend(["-m", "1"]);
     }
     args.push(hash);
-    conflict_aware(git, &args, "Cherry-pick completato")
+    conflict_aware(git, &args, &tr!("Cherry-pick completato", "Cherry-pick completed"))
 }
 
 pub fn revert(git: &Git, hash: &str) -> Result<OpOutcome> {
@@ -418,7 +672,7 @@ pub fn revert(git: &Git, hash: &str) -> Result<OpOutcome> {
         args.extend(["-m", "1"]);
     }
     args.push(hash);
-    conflict_aware(git, &args, "Revert completato")
+    conflict_aware(git, &args, &tr!("Revert completato", "Revert completed"))
 }
 
 /// mode: soft | mixed | hard
@@ -435,7 +689,7 @@ pub fn reset(git: &Git, hash: &str, mode: &str) -> Result<()> {
 fn in_progress(git: &Git) -> Result<String> {
     let st = repo::repo_state(&repo::git_dir(git)?);
     if st.kind == "none" || st.kind == "bisect" {
-        return Err(Error::msg("nessuna operazione in corso"));
+        return Err(Error::msg(tr!("nessuna operazione in corso", "no operation in progress")));
     }
     Ok(st.kind)
 }
@@ -444,14 +698,17 @@ fn in_progress(git: &Git) -> Result<String> {
 pub fn continue_op(git: &Git) -> Result<OpOutcome> {
     let kind = in_progress(git)?;
     if has_conflicts(git) {
-        return Err(Error::msg("ci sono ancora file in conflitto: risolvili e aggiungili allo stage"));
+        return Err(Error::msg(tr!(
+            "ci sono ancora file in conflitto: risolvili e aggiungili allo stage",
+            "some files are still conflicted: resolve them and stage them"
+        )));
     }
     match kind.as_str() {
-        "merge" => conflict_aware(git, &["commit", "--no-edit"], "Merge completato"),
-        "rebase" => conflict_aware(git, &["rebase", "--continue"], "Rebase completato"),
-        "cherry-pick" => conflict_aware(git, &["cherry-pick", "--continue"], "Cherry-pick completato"),
-        "revert" => conflict_aware(git, &["revert", "--continue"], "Revert completato"),
-        k => Err(Error::msg(format!("operazione non supportata: {k}"))),
+        "merge" => conflict_aware(git, &["commit", "--no-edit"], &tr!("Merge completato", "Merge completed")),
+        "rebase" => conflict_aware(git, &["rebase", "--continue"], &tr!("Rebase completato", "Rebase completed")),
+        "cherry-pick" => conflict_aware(git, &["cherry-pick", "--continue"], &tr!("Cherry-pick completato", "Cherry-pick completed")),
+        "revert" => conflict_aware(git, &["revert", "--continue"], &tr!("Revert completato", "Revert completed")),
+        k => Err(Error::msg(tr!("operazione non supportata: {k}", "unsupported operation: {k}"))),
     }
 }
 
@@ -464,7 +721,7 @@ pub fn abort_op(git: &Git) -> Result<()> {
 pub fn skip_op(git: &Git) -> Result<OpOutcome> {
     let kind = in_progress(git)?;
     if kind == "merge" {
-        return Err(Error::msg("un merge non può essere saltato, solo annullato"));
+        return Err(Error::msg(tr!("un merge non può essere saltato, solo annullato", "a merge cannot be skipped, only aborted")));
     }
-    conflict_aware(git, &[kind.as_str(), "--skip"], "Commit saltato")
+    conflict_aware(git, &[kind.as_str(), "--skip"], &tr!("Commit saltato", "Commit skipped"))
 }

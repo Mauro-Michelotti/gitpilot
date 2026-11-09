@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Columns2, Minus, Plus, Rows2, Undo2, X } from "lucide-react";
 import * as A from "../actions";
 import { api, errorText } from "../api";
+import { useT } from "../i18n";
 import { useStore, type DiffSource, type RepoTab } from "../store";
 import type { DiffLine, FileDiff, Hunk } from "../types";
 
@@ -16,6 +17,7 @@ function loadMode(): Mode {
 }
 
 export function DiffView({ tab, source }: { tab: RepoTab; source: DiffSource }) {
+  const t = useT();
   const path = tab.path;
   const [diff, setDiff] = useState<FileDiff | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -62,11 +64,11 @@ export function DiffView({ tab, source }: { tab: RepoTab; source: DiffSource }) 
 
   const hunkAction = (h: Hunk, action: "stage" | "unstage" | "discard") => {
     const run = () =>
-      A.run(action === "stage" ? "Stage hunk" : action === "unstage" ? "Unstage hunk" : "Scarta hunk", () =>
+      A.run(action === "stage" ? "Stage hunk" : action === "unstage" ? "Unstage hunk" : t("diff.discardHunkBusy"), () =>
         api.applyHunk(path, file.path, source.kind === "working" && source.staged ? file.oldPath : null, h.header, action),
       { path });
     if (action === "discard") {
-      A.confirm("Scarta blocco", "Scartare queste modifiche dal file? Non si può annullare.", { danger: true, confirmLabel: "Scarta" }).then((ok) => {
+      A.confirm(t("diff.discardTitle"), t("diff.discardConfirm"), { danger: true, confirmLabel: t("diff.discard") }).then((ok) => {
         if (ok) run();
       });
     } else run();
@@ -74,7 +76,13 @@ export function DiffView({ tab, source }: { tab: RepoTab; source: DiffSource }) 
 
   const canHunk = source.kind === "working" && !untracked && !!diff && !diff.binary;
   const subtitle =
-    source.kind === "commit" ? `commit ${source.hash.slice(0, 7)}` : source.staged ? "modifiche in stage" : untracked ? "file non tracciato" : "modifiche non in stage";
+    source.kind === "commit"
+      ? `commit ${source.hash.slice(0, 7)}`
+      : source.staged
+        ? t("diff.subtitle.staged")
+        : untracked
+          ? t("diff.subtitle.untracked")
+          : t("diff.subtitle.unstaged");
 
   return (
     <div className="diff-view">
@@ -101,23 +109,23 @@ export function DiffView({ tab, source }: { tab: RepoTab; source: DiffSource }) 
             )
           )}
           <div className="seg">
-            <button className={mode === "unified" ? "on" : ""} onClick={() => switchMode("unified")} title="Vista unificata">
+            <button className={mode === "unified" ? "on" : ""} onClick={() => switchMode("unified")} title={t("diff.unified")}>
               <Rows2 size={14} />
             </button>
-            <button className={mode === "split" ? "on" : ""} onClick={() => switchMode("split")} title="Vista affiancata">
+            <button className={mode === "split" ? "on" : ""} onClick={() => switchMode("split")} title={t("diff.split")}>
               <Columns2 size={14} />
             </button>
           </div>
-          <button className="icon-btn" onClick={close} title="Chiudi (Esc)">
+          <button className="icon-btn" onClick={close} title={t("diff.close")}>
             <X size={16} />
           </button>
         </div>
       </div>
       <div className="diff-body">
         {err && <div className="empty error-text">{err}</div>}
-        {!err && !diff && <div className="empty muted">Caricamento…</div>}
-        {diff?.binary && <div className="empty muted">File binario: nessuna anteprima.</div>}
-        {diff && !diff.binary && diff.hunks.length === 0 && <div className="empty muted">Nessuna differenza di contenuto (solo permessi o rinomina).</div>}
+        {!err && !diff && <div className="empty muted">{t("diff.loading")}</div>}
+        {diff?.binary && <div className="empty muted">{t("diff.binary")}</div>}
+        {diff && !diff.binary && diff.hunks.length === 0 && <div className="empty muted">{t("diff.noContent")}</div>}
         {diff?.hunks.map((h) => (
           <div key={h.header} className="hunk">
             <div className="hunk-head">
@@ -127,16 +135,16 @@ export function DiffView({ tab, source }: { tab: RepoTab; source: DiffSource }) 
                   {source.kind === "working" && !source.staged && (
                     <>
                       <button className="btn btn-xs danger-ghost" onClick={() => hunkAction(h, "discard")}>
-                        <Undo2 size={12} /> Scarta
+                        <Undo2 size={12} /> {t("diff.discard")}
                       </button>
                       <button className="btn btn-xs btn-ok" onClick={() => hunkAction(h, "stage")}>
-                        <Plus size={12} /> Stage blocco
+                        <Plus size={12} /> {t("diff.stageHunk")}
                       </button>
                     </>
                   )}
                   {source.kind === "working" && source.staged && (
                     <button className="btn btn-xs" onClick={() => hunkAction(h, "unstage")}>
-                      <Minus size={12} /> Unstage blocco
+                      <Minus size={12} /> {t("diff.unstageHunk")}
                     </button>
                   )}
                 </span>
@@ -145,7 +153,7 @@ export function DiffView({ tab, source }: { tab: RepoTab; source: DiffSource }) 
             {mode === "unified" ? <Unified lines={h.lines} /> : <Split lines={h.lines} />}
           </div>
         ))}
-        {diff?.truncated && <div className="empty muted">Diff troncato: il file è troppo grande per essere mostrato per intero.</div>}
+        {diff?.truncated && <div className="empty muted">{t("diff.truncated")}</div>}
       </div>
     </div>
   );

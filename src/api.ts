@@ -10,6 +10,7 @@ import type {
   GitFlowConfig,
   GraphResult,
   NewPullRequest,
+  PullAllReport,
   OpOutcome,
   PullRequest,
   RemoteRepo,
@@ -24,6 +25,7 @@ export const api = {
   appInfo: () => call<AppInfo>("app_info"),
   settingsGet: () => call<Settings>("settings_get"),
   settingsSave: (settings: Settings) => call<void>("settings_save", { settings }),
+  setLanguage: (language: "it" | "en") => call<void>("set_language", { language }),
 
   repoOpen: (path: string) => call<string>("repo_open", { path }),
   repoInit: (path: string, defaultBranch: string) => call<string>("repo_init", { path, defaultBranch }),
@@ -50,6 +52,8 @@ export const api = {
 
   fetch: (path: string, opId: string, remote: string | null = null) => call<void>("fetch", { path, opId, remote }),
   pull: (path: string, opId: string, mode: string) => call<OpOutcome>("pull", { path, opId, mode }),
+  pullBranch: (path: string, opId: string, branch: string) => call<string>("pull_branch", { path, opId, branch }),
+  pullAllBranches: (path: string, opId: string) => call<PullAllReport>("pull_all_branches", { path, opId }),
   push: (path: string, opId: string, branch: string | null, remote: string | null, force: boolean) =>
     call<string>("push", { path, opId, branch, remote, force }),
 

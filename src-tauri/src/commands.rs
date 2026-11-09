@@ -12,7 +12,7 @@ use gitpilot_core::gitflow::{self, FinishOptions};
 use gitpilot_core::model::*;
 use gitpilot_core::providers::{self, NewPullRequest, PullRequest, RemoteRepo};
 use gitpilot_core::settings::Settings;
-use gitpilot_core::{ops, remote_url, repo, Git};
+use gitpilot_core::{ops, remote_url, repo, tr, Git};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
@@ -70,7 +70,7 @@ pub async fn app_info(state: State<'_, AppState>) -> CmdResult<AppInfo> {
     blocking(move || {
         Ok(AppInfo {
             version: env!("CARGO_PKG_VERSION").into(),
-            git_version: gitpilot_core::git::git_version().unwrap_or_else(|_| "git non trovato".into()),
+            git_version: gitpilot_core::git::git_version().unwrap_or_else(|_| tr!("git non trovato", "git not found")),
             config_dir,
             home_dir: std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default(),
         })
@@ -86,6 +86,12 @@ pub async fn settings_get(state: State<'_, AppState>) -> CmdResult<Settings> {
 #[tauri::command]
 pub async fn settings_save(state: State<'_, AppState>, settings: Settings) -> CmdResult<()> {
     state.settings.save(&settings).map_err(|e| e.to_string())
+}
+
+/// Language resolved by the frontend ("it" | "en") for backend messages and git output.
+#[tauri::command]
+pub fn set_language(language: String) {
+    gitpilot_core::i18n::set_language(&language);
 }
 
 // ---------------------------------------------------------------- repositories
@@ -227,6 +233,28 @@ pub async fn pull(app: AppHandle, state: State<'_, AppState>, path: String, op_i
         let auth = AccountStore::new(&dir).net_auth();
         let mut progress = progress_emitter(app, op_id);
         ops::pull(&git(&path), &mode, &auth, &mut progress)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn pull_branch(app: AppHandle, state: State<'_, AppState>, path: String, op_id: String, branch: String) -> CmdResult<String> {
+    let dir = state.config_dir.clone();
+    blocking(move || {
+        let auth = AccountStore::new(&dir).net_auth();
+        let mut progress = progress_emitter(app, op_id);
+        ops::pull_branch(&git(&path), &branch, &auth, &mut progress)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn pull_all_branches(app: AppHandle, state: State<'_, AppState>, path: String, op_id: String) -> CmdResult<PullAllReport> {
+    let dir = state.config_dir.clone();
+    blocking(move || {
+        let auth = AccountStore::new(&dir).net_auth();
+        let mut progress = progress_emitter(app, op_id);
+        ops::pull_all_branches(&git(&path), &auth, &mut progress)
     })
     .await
 }
@@ -444,7 +472,7 @@ pub async fn accounts_list(state: State<'_, AppState>) -> CmdResult<Vec<Account>
 pub async fn account_add(state: State<'_, AppState>, kind: String, host: String, token: String) -> CmdResult<Account> {
     let token = token.trim().to_string();
     if token.is_empty() {
-        return Err("inserisci un token di accesso".into());
+        return Err(tr!("inserisci un token di accesso", "enter an access token"));
     }
     let (host, base_url, api_url) = accounts::endpoints(&kind, &host).map_err(|e| e.to_string())?;
     let user = providers::whoami(&kind, &api_url, &token).await.map_err(|e| e.to_string())?;
@@ -494,10 +522,16 @@ async fn repo_provider(state: &State<'_, AppState>, path: String) -> CmdResult<(
         Ok(remote_url::provider_link(&remotes, &accounts))
     })
     .await?
-    .ok_or("il repository non ha un remote GitHub/GitLab riconosciuto")?;
+    .ok_or_else(|| tr!("il repository non ha un remote GitHub/GitLab riconosciuto", "the repository has no recognized GitHub/GitLab remote"))?;
     let id = link
         .account_id
-        .ok_or_else(|| format!("nessun account configurato per {}: aggiungilo nelle Preferenze", link.host))?;
+        .ok_or_else(|| {
+            tr!(
+                "nessun account configurato per {}: aggiungilo nelle Preferenze",
+                "no account configured for {}: add one in Preferences",
+                link.host
+            )
+        })?;
     let (acc, token) = account_with_token(state.config_dir.clone(), id).await?;
     Ok((acc, token, link.project))
 }

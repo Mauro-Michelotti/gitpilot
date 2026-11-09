@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 
 use crate::accounts::Account;
 use crate::error::{Error, Result};
+use crate::tr;
 use crate::util::url_encode;
 
 #[derive(Serialize, Debug, Clone)]
@@ -108,10 +109,10 @@ async fn check(resp: Response) -> Result<Response> {
         })
         .unwrap_or_else(|| body.chars().take(300).collect());
     let hint = match status.as_u16() {
-        401 => " (token non valido o scaduto)",
-        403 => " (permessi del token insufficienti)",
-        404 => " (risorsa non trovata o non accessibile al token)",
-        _ => "",
+        401 => tr!(" (token non valido o scaduto)", " (invalid or expired token)"),
+        403 => tr!(" (permessi del token insufficienti)", " (insufficient token permissions)"),
+        404 => tr!(" (risorsa non trovata o non accessibile al token)", " (resource not found or not accessible with this token)"),
+        _ => String::new(),
     };
     Err(Error::Api(format!("{}{hint}: {detail}", status)))
 }
@@ -156,7 +157,7 @@ pub async fn whoami(kind: &str, api_url: &str, token: &str) -> Result<UserInfo> 
         _ => s(&v["username"]),
     };
     if username.is_empty() {
-        return Err(Error::Api("risposta /user inattesa".into()));
+        return Err(Error::Api(tr!("risposta /user inattesa", "unexpected /user response")));
     }
     Ok(UserInfo { username, name: opt(&v["name"]).filter(|n| !n.is_empty()), avatar_url: opt(&v["avatar_url"]) })
 }
@@ -246,7 +247,7 @@ pub async fn list_pull_requests(acc: &Account, token: &str, project: &str) -> Re
 
 pub async fn create_pull_request(acc: &Account, token: &str, project: &str, pr: &NewPullRequest) -> Result<PullRequest> {
     if pr.title.trim().is_empty() {
-        return Err(Error::msg("il titolo è obbligatorio"));
+        return Err(Error::msg(tr!("il titolo è obbligatorio", "the title is required")));
     }
     let c = client()?;
     let (url, body) = match acc.kind.as_str() {

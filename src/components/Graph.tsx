@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Cloud, Laptop, Pencil, Tag, CircleDot } from "lucide-react";
 import * as A from "../actions";
 import { commitMenu, localBranchMenu, remoteBranchMenu, tagMenu } from "../menus";
+import { useT } from "../i18n";
 import type { RepoTab } from "../store";
 import type { CommitRow, GraphLine, RefLabel, RepoOverview, StatusResult } from "../types";
 import { fullDate, initials, laneColor, personColor, relativeTime } from "../util";
@@ -10,6 +11,10 @@ const ROW_H = 30;
 const LANE_W = 20;
 const PAD = 10;
 const NODE_R = 9;
+/** Width of the "Branch / tag" column (also set as --refs-w for the CSS grid). */
+const REFS_W = 190;
+/** Narrowest graph column: one lane alone would cut the "Graph" header. */
+const GRAPH_MIN_W = 64;
 
 const x = (col: number) => PAD + col * LANE_W + LANE_W / 2;
 
@@ -58,6 +63,47 @@ function chipsFor(refs: RefLabel[], o: RepoOverview | null): Chip[] {
   return out;
 }
 
+const textWidths = new Map<string, number>();
+let measureCtx: CanvasRenderingContext2D | null | undefined;
+
+/** Rendered width of a chip label, measured once per label. */
+function textWidth(text: string, bold: boolean): number {
+  const key = (bold ? "b:" : "n:") + text;
+  let w = textWidths.get(key);
+  if (w === undefined) {
+    if (measureCtx === undefined) measureCtx = document.createElement("canvas").getContext("2d");
+    if (!measureCtx) return text.length * 7;
+    measureCtx.font = `${bold ? 700 : 400} 11.5px ${getComputedStyle(document.body).fontFamily}`;
+    w = measureCtx.measureText(text).width;
+    textWidths.set(key, w);
+  }
+  return w;
+}
+
+// Chip geometry, matching .chip and .gcol-refs in styles.css.
+const CHIP_FRAME = 14; // padding 6 + border 1, on both sides
+const CHIP_ICON = 14; // 11px icon + 3px gap
+const CHIP_GAP = 4;
+const LINK_MIN = 6;
+const REFS_INNER = REFS_W - 16;
+
+function chipWidth(c: Chip): number {
+  const icons = Number(c.current) + Number(!!c.local) + Number(!!c.remote) + Number(c.kind === "tag" || c.kind === "head");
+  return Math.min(150, CHIP_FRAME + icons * CHIP_ICON + textWidth(c.label, c.current));
+}
+
+/**
+ * How many chips fit in the refs column. The first one (the current branch, if
+ * any) always shows; the second only if it fits whole next to the "+N" counter,
+ * otherwise it goes into the counter too.
+ */
+function visibleChips(chips: Chip[]): number {
+  if (chips.length < 2) return chips.length;
+  const more = chips.length > 2 ? CHIP_GAP + CHIP_FRAME + textWidth(`+${chips.length - 2}`, false) : 0;
+  const need = chipWidth(chips[0]) + CHIP_GAP + chipWidth(chips[1]) + more + CHIP_GAP + LINK_MIN;
+  return need <= REFS_INNER ? 2 : 1;
+}
+
 const Row = memo(function Row({
   row,
   top,
@@ -79,11 +125,14 @@ const Row = memo(function Row({
   path: string;
   showAvatars: boolean;
 }) {
+  // Subscribes the memoized row to the language, so texts and relative dates follow it.
+  const t = useT();
   const g = row.graph;
   const cx = x(g.col);
   const cy = ROW_H / 2;
   const color = laneColor(g.color);
   const chips = chipsFor(row.refs, overview);
+  const shown = visibleChips(chips);
   const isMerge = row.parents.length > 1;
 
   const onChipDouble = (c: Chip) => {
@@ -110,7 +159,7 @@ const Row = memo(function Row({
       }}
     >
       <div className="gcol-refs">
-        {chips.slice(0, 2).map((c) => (
+        {chips.slice(0, shown).map((c) => (
           <span
             key={c.key}
             className={`chip chip-${c.kind}${c.current ? " current" : ""}`}
@@ -130,9 +179,9 @@ const Row = memo(function Row({
             <span className="chip-label">{c.label}</span>
           </span>
         ))}
-        {chips.length > 2 && (
-          <span className="chip chip-more" title={chips.slice(2).map((c) => c.label).join("\n")}>
-            +{chips.length - 2}
+        {chips.length > shown && (
+          <span className="chip chip-more" title={chips.slice(shown).map((c) => c.label).join("\n")}>
+            +{chips.length - shown}
           </span>
         )}
         {chips.length > 0 && <span className="chip-link" style={{ background: color }} />}
@@ -170,9 +219,9 @@ const Row = memo(function Row({
             <span className="wip-label">// WIP</span>
             {counts && (
               <span className="wip-counts">
-                {counts.conflicts > 0 && <span className="badge badge-danger">{counts.conflicts} conflitti</span>}
-                {counts.unstaged > 0 && <span className="badge">{counts.unstaged} modificati</span>}
-                {counts.staged > 0 && <span className="badge badge-ok">{counts.staged} in stage</span>}
+                {counts.conflicts > 0 && <span className="badge badge-danger">{t("graph.conflicts", { count: counts.conflicts })}</span>}
+                {counts.unstaged > 0 && <span className="badge">{t("graph.modified", { count: counts.unstaged })}</span>}
+                {counts.staged > 0 && <span className="badge badge-ok">{t("graph.staged", { count: counts.staged })}</span>}
               </span>
             )}
           </>
@@ -192,6 +241,7 @@ const Row = memo(function Row({
 });
 
 export function Graph({ tab }: { tab: RepoTab }) {
+  const t = useT();
   const graph = tab.graph;
   const ref = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -209,7 +259,7 @@ export function Graph({ tab }: { tab: RepoTab }) {
 
   const rows = graph?.rows ?? [];
   const lanes = Math.max(1, Math.min(graph?.lanes ?? 1, 14));
-  const width = PAD * 2 + lanes * LANE_W;
+  const width = Math.max(GRAPH_MIN_W, PAD * 2 + lanes * LANE_W);
   const wipColor = rows[0]?.wip ? rows[0].graph.color : null;
   const selectedHash = tab.selection?.kind === "wip" ? "WIP" : tab.selection?.kind === "commit" ? tab.selection.hash : null;
   const selectedIndex = useMemo(() => rows.findIndex((r) => r.hash === selectedHash), [rows, selectedHash]);
@@ -238,15 +288,15 @@ export function Graph({ tab }: { tab: RepoTab }) {
   const end = Math.min(rows.length, Math.ceil((scrollTop + height) / ROW_H) + overscan);
 
   return (
-    <div className="graph" style={{ ["--graph-w" as string]: `${width}px` }}>
+    <div className="graph" style={{ ["--graph-w" as string]: `${width}px`, ["--refs-w" as string]: `${REFS_W}px` }}>
       <div className="graph-head">
         <div className="gcol-refs">Branch / tag</div>
         <div className="gcol-graph" style={{ width }}>
-          Grafo
+          {t("graph.colGraph")}
         </div>
-        <div className="gcol-msg">Messaggio</div>
-        <div className="gcol-author">Autore</div>
-        <div className="gcol-date">Data</div>
+        <div className="gcol-msg">{t("graph.colMessage")}</div>
+        <div className="gcol-author">{t("graph.colAuthor")}</div>
+        <div className="gcol-date">{t("graph.colDate")}</div>
         <div className="gcol-sha">SHA</div>
       </div>
       <div
@@ -274,15 +324,15 @@ export function Graph({ tab }: { tab: RepoTab }) {
           {graph?.truncated && (
             <div className="graph-more" style={{ top: rows.length * ROW_H }}>
               <button className="btn" onClick={() => A.loadMoreCommits(tab.path)}>
-                Mostra altri commit
+                {t("graph.more")}
               </button>
             </div>
           )}
         </div>
         {!tab.loading && rows.length === 0 && (
           <div className="empty">
-            <p>Nessun commit ancora.</p>
-            <p className="muted">Aggiungi dei file e crea il primo commit dal pannello a destra.</p>
+            <p>{t("graph.empty")}</p>
+            <p className="muted">{t("graph.emptyHint")}</p>
           </div>
         )}
       </div>
