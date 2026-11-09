@@ -184,6 +184,15 @@ export interface OpOutcome {
   message: string;
 }
 
+/** Result of "Pull di tutti i branch": every local branch with an upstream lands in one list. */
+export interface PullAllReport {
+  updated: { name: string; commits: number }[];
+  /** Same commit as the upstream, or only ahead of it. */
+  upToDate: string[];
+  /** Left untouched, with the reason. */
+  skipped: { name: string; reason: string }[];
+}
+
 export type Segment =
   | { type: "common"; text: string }
   | {

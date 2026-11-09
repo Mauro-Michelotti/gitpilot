@@ -46,6 +46,10 @@ export async function confirm(
   return (await prompt({ title, message, fields: [], ...opts })) !== null;
 }
 
+export async function inform(title: string, message: React.ReactNode) {
+  await prompt({ title, message, fields: [], confirmLabel: "Chiudi", alert: true });
+}
+
 export function showMenu(e: React.MouseEvent, items: MenuItem[]) {
   e.preventDefault();
   e.stopPropagation();
@@ -331,6 +335,32 @@ export async function pull(path = active(), mode?: string) {
 export async function pullBranch(path: string, branch: string) {
   if (ov(path)?.head.branch === branch) return pull(path);
   await run(`Pull di ${branch}`, () => api.pullBranch(path, newOpId(), branch), { path, success: (m) => m });
+}
+
+/** Fast-forward every local branch with an upstream; never switches branch or opens conflicts. */
+export async function pullAllBranches(path = active()) {
+  const r = await run("Pull di tutti i branch", () => api.pullAllBranches(path, newOpId()), { path });
+  if (!r) return;
+  const { updated, upToDate, skipped } = r;
+  const list = (names: string[], max = 5) =>
+    names.length > max ? `${names.slice(0, max).join(", ")} e altri ${names.length - max}` : names.join(", ");
+  const updatedText = list(updated.map((u) => `${u.name} (+${u.commits})`));
+  if (!updated.length && !upToDate.length && !skipped.length) {
+    return toast("info", "Nessun branch locale con upstream da aggiornare");
+  }
+  if (!skipped.length) {
+    if (!updated.length) return toast("success", `Tutti i branch sono già aggiornati (${upToDate.length})`);
+    const rest = upToDate.length ? `; ${upToDate.length} già aggiornati` : "";
+    return toast("success", `Aggiornati ${updated.length} branch: ${updatedText}${rest}`);
+  }
+  const lines = [
+    updated.length ? `Aggiornati (${updated.length}): ${updatedText}` : "Nessun branch aggiornato.",
+    ...(upToDate.length ? [`Già aggiornati (${upToDate.length}): ${list(upToDate)}`] : []),
+    "",
+    `Saltati, senza modifiche (${skipped.length}):`,
+    ...skipped.map((s) => `• ${s.name}: ${s.reason}`),
+  ];
+  await inform("Pull di tutti i branch", lines.join("\n"));
 }
 
 export async function push(path = active(), opts: { branch?: string; force?: boolean } = {}) {

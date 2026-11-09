@@ -16,7 +16,8 @@ GPG, LFS e `includeIf` funzionano esattamente come da terminale.
   amend; diff unificato o affiancato.
 - **Branch, tag, stash, remote**: crea, rinomina, elimina (anche sul remote), upstream, push/pull/fetch
   (pull fast-forward / solo ff / rebase, force push con `--force-with-lease`); pull in fast-forward
-  anche dei branch locali non in checkout, senza cambiare branch.
+  anche dei branch locali non in checkout, senza cambiare branch, e di tutti i branch locali insieme
+  (un fetch per remote, riepilogo dei branch aggiornati e di quelli saltati con il motivo).
 - **Merge, rebase, cherry-pick, revert, reset** (soft/mixed/hard) da menu contestuale.
 - **Conflitti**: banner di stato con Continua/Salta/Annulla, editor a due lati + base con risultato
   modificabile, "tutto nostro/loro", conflitti di eliminazione.

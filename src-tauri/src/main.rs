@@ -114,6 +114,7 @@ fn main() {
             commands::fetch,
             commands::pull,
             commands::pull_branch,
+            commands::pull_all_branches,
             commands::push,
             commands::checkout,
             commands::checkout_remote,

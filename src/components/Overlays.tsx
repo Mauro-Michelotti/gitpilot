@@ -161,9 +161,11 @@ export function PromptDialog() {
       onClose={() => spec.resolve(null)}
       footer={
         <>
-          <button className="btn" onClick={() => spec.resolve(null)}>
-            Annulla
-          </button>
+          {!spec.alert && (
+            <button className="btn" onClick={() => spec.resolve(null)}>
+              Annulla
+            </button>
+          )}
           <button className={`btn ${spec.danger ? "btn-danger" : "btn-primary"}`} disabled={missing} onClick={submit}>
             {spec.confirmLabel ?? "OK"}
           </button>

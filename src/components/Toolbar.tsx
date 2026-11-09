@@ -114,7 +114,7 @@ export function Toolbar({ tab }: { tab: RepoTab }) {
         A.pull(path, mode);
       },
     });
-    A.showMenu(e, [item("ff", "Pull (fast-forward se possibile)"), item("ff-only", "Pull (solo fast-forward)"), item("rebase", "Pull (rebase)"), { separator: true }, { label: "Solo fetch di tutti i remote", action: () => A.fetchAll(path) }]);
+    A.showMenu(e, [item("ff", "Pull (fast-forward se possibile)"), item("ff-only", "Pull (solo fast-forward)"), item("rebase", "Pull (rebase)"), { separator: true }, { label: "Pull di tutti i branch (fast-forward)", action: () => A.pullAllBranches(path) }, { label: "Solo fetch di tutti i remote", action: () => A.fetchAll(path) }]);
   };
 
   const pushMenu = (e: React.MouseEvent) =>
