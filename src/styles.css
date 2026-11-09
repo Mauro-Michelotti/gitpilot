@@ -1050,6 +1050,15 @@ textarea {
   flex-wrap: wrap;
   gap: 4px;
 }
+/* Unlike the graph column, the panel has room: whole names on one line, wrapping chip by
+   chip; only a name wider than the panel is cut (full name in the tooltip). */
+.commit-refs .chip {
+  max-width: 100%;
+  white-space: nowrap;
+}
+.commit-refs .chip svg {
+  flex-shrink: 0;
+}
 .person {
   display: flex;
   gap: 10px;
