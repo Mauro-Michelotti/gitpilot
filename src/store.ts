@@ -5,7 +5,9 @@ import type {
   AppInfo,
   FileChange,
   GraphResult,
+  Issue,
   PullRequest,
+  RepoGroup,
   RepoOverview,
   Settings,
   StatusResult,
@@ -20,7 +22,14 @@ export type DiffSource =
 export type CenterView =
   | { kind: "graph" }
   | { kind: "diff"; source: DiffSource }
-  | { kind: "conflict"; file: string };
+  | { kind: "conflict"; file: string }
+  | { kind: "issue"; number: number };
+
+export interface IssueFilter {
+  state: "open" | "closed";
+  /** Only the issues assigned to the account. */
+  mine: boolean;
+}
 
 export interface RepoTab {
   path: string;
@@ -37,6 +46,12 @@ export interface RepoTab {
   prs: PullRequest[] | null;
   prError: string | null;
   prLoading: boolean;
+  issues: Issue[] | null;
+  issueError: string | null;
+  issueLoading: boolean;
+  issueFilter: IssueFilter;
+  /** Bumped when the issue list reloads, so an open issue reloads too. */
+  issueRevision: number;
   /** Bumped after every refresh so open diffs/details can reload. */
   revision: number;
 }
@@ -84,19 +99,31 @@ export interface PromptSpec {
 
 export type ModalKind = "clone" | "preferences" | null;
 
+/** "Crea branch da issue" dialog. */
+export interface IssueBranchSpec {
+  path: string;
+  issue: Issue;
+}
+
 interface State {
   info: AppInfo | null;
   settings: Settings | null;
   accounts: Account[];
+  /** Top-level tabs: repository paths and group ids (the repositories of a group are not listed). */
   tabs: string[];
+  /** Repository on screen (also when it is a tab of a group); null on the home screen. */
   active: string | null;
+  /** Every open repository, those of the open groups included. */
   repos: Record<string, RepoTab>;
+  /** Repository tabs selected with Ctrl/Cmd+click, to group them. */
+  tabSelection: string[];
   /** Repositories with a refresh in progress (kept outside RepoTab so toggling it does not re-render the repo screen). */
   refreshing: Record<string, true>;
   toasts: Toast[];
   menu: { x: number; y: number; items: MenuItem[] } | null;
   prompt: PromptSpec | null;
   modal: ModalKind;
+  issueBranch: IssueBranchSpec | null;
   busy: string | null;
   progress: string | null;
   set: (patch: Partial<State>) => void;
@@ -120,6 +147,11 @@ export function emptyTab(path: string, graphLimit = 2000): RepoTab {
     prs: null,
     prError: null,
     prLoading: false,
+    issues: null,
+    issueError: null,
+    issueLoading: false,
+    issueFilter: { state: "open", mine: false },
+    issueRevision: 0,
     revision: 0,
   };
 }
@@ -131,11 +163,13 @@ export const useStore = create<State>((set) => ({
   tabs: [],
   active: null,
   repos: {},
+  tabSelection: [],
   refreshing: {},
   toasts: [],
   menu: null,
   prompt: null,
   modal: null,
+  issueBranch: null,
   busy: null,
   progress: null,
   set: (patch) => set(patch),
@@ -149,3 +183,12 @@ export const useStore = create<State>((set) => ({
 }));
 
 export const useActiveRepo = () => useStore((s) => (s.active ? s.repos[s.active] : undefined));
+
+export const isGroupId = (entry: string) => entry.startsWith("group:");
+
+/** Open group that shows `path` as one of its tabs. */
+export function openGroupOf(groups: RepoGroup[] | undefined, tabs: string[], path: string | null): RepoGroup | undefined {
+  return path ? groups?.find((g) => tabs.includes(g.id) && g.repos.includes(path)) : undefined;
+}
+
+export const useActiveGroup = () => useStore((s) => openGroupOf(s.settings?.groups, s.tabs, s.active));

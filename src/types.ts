@@ -225,6 +225,8 @@ export interface Account {
   name: string | null;
   avatarUrl: string | null;
   tokenInFile: boolean;
+  /** Account of the GitHub CLI: managed with `gh auth`, its token is never stored by GitPilot. */
+  fromGh: boolean;
 }
 
 export interface RemoteRepo {
@@ -265,16 +267,74 @@ export interface RecentRepo {
   lastOpened: number;
 }
 
+export interface IssueLabel {
+  name: string;
+  /** `#rrggbb` */
+  color: string | null;
+}
+
+export interface Issue {
+  /** Issue number (GitHub) or iid (GitLab). */
+  number: number;
+  title: string;
+  state: "open" | "closed";
+  author: string;
+  labels: IssueLabel[];
+  assignees: string[];
+  milestone: string | null;
+  comments: number;
+  webUrl: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface IssueComment {
+  author: string;
+  createdAt: string | null;
+  /** Sanitized by the backend. */
+  bodyHtml: string;
+}
+
+export interface IssueDetail {
+  issue: Issue;
+  /** Sanitized by the backend. */
+  bodyHtml: string;
+  comments: IssueComment[];
+}
+
+/** Branch created for an issue. */
+export interface BranchIssue {
+  branch: string;
+  issue: number;
+}
+
+/** Repositories shown as one tab with second-level tabs. */
+export interface RepoGroup {
+  /** `group:<random>`, never a path: it sits in `openTabs` next to repository paths. */
+  id: string;
+  name: string;
+  /** Repository roots in tab order; a repository belongs to one group at most. */
+  repos: string[];
+  /** Last active second-level tab. */
+  activeRepo: string | null;
+}
+
 export interface Settings {
   recent: RecentRepo[];
+  /** Top-level tabs: repository paths and group ids. */
   openTabs: string[];
+  /** Repository shown, also when it is a tab of a group. */
   activeTab: string | null;
+  /** Saved groups, open or not. */
+  groups: RepoGroup[];
   theme: "system" | "dark" | "light";
   pullMode: "ff" | "ff-only" | "rebase";
   graphLimit: number;
   cloneDir: string | null;
   authorAvatars: boolean;
   language: "system" | "it" | "en";
+  /** Use the accounts of the GitHub CLI (`gh auth login`). */
+  useGhAccounts: boolean;
 }
 
 export interface AppInfo {

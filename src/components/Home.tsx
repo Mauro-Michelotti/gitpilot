@@ -1,9 +1,9 @@
-import { CloudDownload, FolderGit2, FolderOpen, FolderPlus, Settings as Gear, X } from "lucide-react";
+import { CloudDownload, FolderGit2, FolderOpen, FolderPlus, Settings as Gear, Layers, X } from "lucide-react";
 import * as A from "../actions";
 import { api } from "../api";
 import { useT } from "../i18n";
 import { useStore } from "../store";
-import { relativeTime } from "../util";
+import { basename, relativeTime } from "../util";
 import { Logo, ProviderIcon } from "./icons";
 
 export function Home() {
@@ -13,6 +13,8 @@ export function Home() {
   const info = useStore((s) => s.info);
   const set = useStore((s) => s.set);
   const recent = settings?.recent ?? [];
+  const groups = settings?.groups ?? [];
+  const groupOf = (path: string) => groups.find((g) => g.repos.includes(path));
 
   const initRepo = async () => {
     const v = await A.prompt({
@@ -69,7 +71,27 @@ export function Home() {
         <div className="home-cols">
           <div className="home-recent">
             <h3>{t("home.recent")}</h3>
-            {recent.length === 0 && <p className="muted">{t("home.recent.empty")}</p>}
+            {recent.length === 0 && groups.length === 0 && <p className="muted">{t("home.recent.empty")}</p>}
+            {groups.map((g) => (
+              <div key={g.id} className="recent-row" onClick={() => A.openGroup(g.id)} title={g.repos.join("\n")}>
+                <Layers size={16} className="accent" />
+                <div className="recent-text">
+                  <span>{g.name}</span>
+                  <span className="muted small">{g.repos.map(basename).join(", ")}</span>
+                </div>
+                <span className="muted small">{t("groups.count", { count: g.repos.length })}</span>
+                <button
+                  className="icon-btn"
+                  title={t("groups.home.remove")}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    A.dissolveGroup(g.id);
+                  }}
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ))}
             {recent.map((r) => (
               <div key={r.path} className="recent-row" onClick={() => A.openRepo(r.path)} title={r.path}>
                 <FolderGit2 size={16} className="muted" />
@@ -77,6 +99,12 @@ export function Home() {
                   <span>{r.name}</span>
                   <span className="muted small">{r.path}</span>
                 </div>
+                {groupOf(r.path) && (
+                  <span className="recent-group">
+                    <Layers size={11} />
+                    {groupOf(r.path)!.name}
+                  </span>
+                )}
                 <span className="muted small">{relativeTime(r.lastOpened)}</span>
                 <button
                   className="icon-btn"
@@ -99,6 +127,7 @@ export function Home() {
                 <ProviderIcon kind={a.kind} />
                 <span>{a.name ?? a.username}</span>
                 <span className="muted small">{a.host}</span>
+                {a.fromGh && <span className="badge">GitHub CLI</span>}
               </div>
             ))}
             <button className="btn" onClick={() => set({ modal: "preferences" })}>

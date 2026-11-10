@@ -4,21 +4,26 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   ChevronDown,
+  ChevronRight,
   CloudDownload,
+  Ellipsis,
   FolderOpen,
   GitBranchPlus,
   GitPullRequestCreate,
   Inbox,
+  Layers,
   Plus,
   RefreshCw,
   Settings as Gear,
+  TriangleAlert,
   Workflow,
   X,
 } from "lucide-react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import * as A from "../actions";
 import { useT } from "../i18n";
-import { useStore, type MenuItem, type RepoTab } from "../store";
+import { addToGroupMenu, groupMenu, groupRepoMenu, repoTabMenu } from "../menus";
+import { useActiveGroup, useStore, type MenuItem, type RepoTab } from "../store";
 import { Logo } from "./icons";
 
 function TbButton({
@@ -59,40 +64,101 @@ export function TabBar() {
   const tabs = useStore((s) => s.tabs);
   const active = useStore((s) => s.active);
   const repos = useStore((s) => s.repos);
+  const selection = useStore((s) => s.tabSelection);
+  const groups = useStore((s) => s.settings?.groups);
   const t = useT();
   return (
     <div className="tabbar">
       <div className="tabbar-logo" onClick={() => A.setActive(null)} title="Home">
         <Logo size={20} />
       </div>
-      {tabs.map((p) => (
-        <div
-          key={p}
-          className={`tab${p === active ? " active" : ""}`}
-          onMouseDown={(e) => {
-            if (e.button === 1) {
-              e.preventDefault();
-              A.closeTab(p);
-            } else A.setActive(p);
-          }}
-          title={p}
-        >
-          <span className="tab-name">{repos[p]?.name ?? p}</span>
-          <button
-            className="tab-close"
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              A.closeTab(p);
+      {tabs.map((entry) => {
+        const g = groups?.find((x) => x.id === entry);
+        const isActive = g ? !!active && g.repos.includes(active) : entry === active;
+        const cls = `tab${isActive ? " active" : ""}${selection.includes(entry) ? " selected" : ""}${g ? " tab-group" : ""}`;
+        return (
+          <div
+            key={entry}
+            className={cls}
+            onMouseDown={(e) => {
+              if (e.button === 1) {
+                e.preventDefault();
+                A.closeTab(entry);
+              } else if (e.button === 0) {
+                if (!g && (e.ctrlKey || e.metaKey)) return A.toggleTabSelection(entry);
+                A.clearTabSelection();
+                A.setActive(A.repoOfTab(entry));
+              }
             }}
-            aria-label={t("toolbar.closeTab")}
+            onContextMenu={(e) => A.showMenu(e, g ? groupMenu(entry) : repoTabMenu(entry))}
+            title={g ? g.repos.map((p) => repos[p]?.name ?? p).join(", ") : `${entry}\n${t("groups.tab.select")}`}
           >
-            <X size={12} />
-          </button>
-        </div>
-      ))}
+            {g && <Layers size={13} className="tab-group-icon" />}
+            <span className="tab-name">{g ? g.name : (repos[entry]?.name ?? entry)}</span>
+            {g && <span className="tab-count">{g.repos.length}</span>}
+            <button
+              className="tab-close"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                A.closeTab(entry);
+              }}
+              aria-label={g ? t("groups.menu.close") : t("toolbar.closeTab")}
+            >
+              <X size={12} />
+            </button>
+          </div>
+        );
+      })}
       <button className={`tab tab-new${active === null ? " active" : ""}`} onClick={() => A.setActive(null)} title={t("toolbar.newTab")}>
         <Plus size={14} />
+      </button>
+    </div>
+  );
+}
+
+/** Second-level tabs: the repositories of the group on screen. */
+export function GroupBar() {
+  const g = useActiveGroup();
+  const active = useStore((s) => s.active);
+  const repos = useStore((s) => s.repos);
+  const t = useT();
+  if (!g) return null;
+  return (
+    <div className="groupbar">
+      <button className="groupbar-name" onClick={(e) => A.showMenu(e, groupMenu(g.id))} title={t("groups.bar.options")}>
+        <Layers size={14} />
+        <span>{g.name}</span>
+        <ChevronRight size={13} className="muted" />
+      </button>
+      {g.repos.map((p) => {
+        const r = repos[p];
+        const head = r?.overview?.head;
+        const branch = head?.branch ?? head?.hash?.slice(0, 7);
+        const st = r?.status;
+        const dirty = !!st && st.staged.length + st.unstaged.length + st.conflicted.length > 0;
+        const broken = !!r?.error && !r.overview;
+        return (
+          <div
+            key={p}
+            className={`subtab${p === active ? " active" : ""}${broken ? " broken" : ""}`}
+            onMouseDown={(e) => e.button === 0 && A.setActive(p)}
+            onContextMenu={(e) => A.showMenu(e, groupRepoMenu(p))}
+            title={broken ? `${p}\n${r?.error}` : p}
+          >
+            {broken && <TriangleAlert size={12} />}
+            <span className="subtab-name">{r?.name ?? p}</span>
+            {branch && <span className="subtab-branch">{branch}</span>}
+            {dirty && <span className="subtab-dirty" title={t("groups.bar.dirty")} />}
+          </div>
+        );
+      })}
+      <button className="subtab subtab-add" onClick={(e) => A.showMenu(e, addToGroupMenu(g.id))} title={t("groups.bar.add")}>
+        <Plus size={14} />
+      </button>
+      <span className="grow" />
+      <button className="icon-btn groupbar-more" onClick={(e) => A.showMenu(e, groupMenu(g.id))} title={t("groups.bar.options")}>
+        <Ellipsis size={16} />
       </button>
     </div>
   );

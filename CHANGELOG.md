@@ -1,5 +1,97 @@
 # Changelog
 
+## [0.3.0] - 2026-11-10
+
+Confronto con la versione precedente: [v0.2.0...v0.3.0](../../compare/v0.2.0...v0.3.0). Comprende 5 commit e 5 merge.
+
+### Da fare al rilascio
+
+- `settings.json` ha due nuove impostazioni: `groups` (i gruppi di repository; `openTabs` può
+  contenere anche gli id `group:…`) e `useGhAccounts` (attiva se manca). Le impostazioni
+  esistenti si caricano senza interventi. Tornando a una versione precedente i gruppi si perdono
+  al primo salvataggio e le schede di gruppo non si riaprono.
+- Chi ha la GitHub CLI autenticata (`gh auth login`) si ritrova i suoi account usati per pull
+  request e issue, senza token da configurare. Per non usarli: Preferenze → togliere "Usa gli
+  account di GitHub CLI (gh)".
+
+### Novità
+
+- Gruppi di repository ([#1](../../issues/1)): più repository dello stesso progetto in una sola
+  scheda, con una barra di sotto-schede.
+  - `Ctrl/Cmd+clic` sulle schede per selezionarle, poi clic destro → *Raggruppa N schede…*; il
+    nome proposto è il prefisso comune dei repository (`ipick-be`, `ipick-fe` → `ipick`).
+  - La scheda del gruppo mostra il numero di repository; ogni sotto-scheda mostra il branch
+    corrente e un pallino se ci sono modifiche non committate. Il gruppo ricorda l'ultima
+    sotto-scheda attiva.
+  - Menu del gruppo (clic destro sulla scheda, nome o "…" nella barra): rinomina, aggiungi
+    repository già aperti o scelti da disco, sciogli, chiudi. Clic destro su una sotto-scheda per
+    toglierla dal gruppo.
+  - Un repository sta in un solo gruppo: aprirlo (recenti, Apri) apre il suo gruppo. Chiudere il
+    gruppo chiude tutti i suoi repository; la Home elenca i gruppi tra i recenti e li riapre
+    insieme.
+  - Un repository del gruppo che non esiste più su disco resta come sotto-scheda in errore, con
+    l'azione *Togli dal gruppo*.
+  - Scorciatoie: `Ctrl+Tab` / `Ctrl+Shift+Tab` passano da una scheda all'altra,
+    `Ctrl+PagGiù` / `Ctrl+PagSu` da una sotto-scheda all'altra; `Ctrl/Cmd+W` chiude l'intero
+    gruppo.
+- Issue di GitHub e GitLab ([#3](../../issues/3)).
+  - Sezione *Issue* nella sidebar, con i filtri Aperte, Chiuse e Assegnate a me; il filtro della
+    sidebar cerca anche per titolo e `#numero`. Vengono caricate le 100 issue aggiornate più di
+    recente.
+  - Dettaglio nell'area centrale (si chiude con `Esc`): stato, descrizione e commenti in
+    Markdown, assegnatari, etichette, milestone, branch collegati e partecipanti. I link a issue
+    dello stesso progetto restano in GitPilot, gli altri si aprono nel browser.
+  - *Crea branch* dall'issue: feature, bugfix o hotfix Git Flow (bugfix proposto se l'issue ha
+    un'etichetta "bug") oppure un branch normale, con nome `<numero>-<titolo>`, base e checkout a
+    scelta. Il collegamento all'issue è salvato nella configurazione git del branch
+    (`branch.<nome>.gitpilot-issue`), quindi segue rinomina ed eliminazione del branch.
+  - La pull/merge request creata da un branch collegato, o con il numero dell'issue nel nome,
+    parte con il titolo dell'issue e `Closes #N` nella descrizione.
+- Account della GitHub CLI ([#9](../../issues/9)): gli account con cui `gh` è autenticato si
+  usano per pull request, issue e lista dei repository da clonare, senza token in GitPilot.
+  - Compaiono nelle Preferenze e nella Home come "GitHub CLI" e si gestiscono con `gh auth`.
+  - Con più account sullo stesso server, ognuno dei repository usa l'account che può fare push,
+    poi quello con lo stesso nome del proprietario, poi quelli aggiunti a mano. Prima si usava
+    sempre il primo account del server. Vale anche per gli account aggiunti a mano.
+  - Il dialogo della pull request indica l'account con cui viene creata.
+
+### Sicurezza
+
+- Il testo delle issue (Markdown di GitLab, HTML di GitHub) viene ripulito prima di mostrarlo:
+  restano formattazione, tabelle, immagini e link `http(s)`/`mailto`; script, stili, gestori di
+  eventi, form e link `javascript:` vengono tolti. I link non aprono pagine dentro l'app.
+- I token della GitHub CLI vengono chiesti a `gh` solo quando servono e GitPilot non li salva;
+  `GH_TOKEN` e `GITHUB_TOKEN` dell'ambiente vengono ignorati, così ogni account usa il proprio
+  token.
+
+### Modifiche
+
+- Clic destro su una scheda: apre il menu della scheda invece di renderla attiva.
+- Il titolo della finestra si aggiorna anche chiudendo una scheda e, dentro un gruppo, mostra
+  anche il nome del gruppo.
+
+### Pacchetti e build
+
+- Nuove dipendenze Rust di `gitpilot-core`: `pulldown-cmark` (Markdown delle issue di GitLab) e
+  `ammonia` (pulizia dell'HTML).
+
+### Documentazione
+
+- `README.md`: gruppi di repository, nuove scorciatoie, issue, account della GitHub CLI.
+
+<details>
+<summary>Elenco dei commit</summary>
+
+| Commit | Data | Autore | Messaggio |
+|--------|------|--------|-----------|
+| [`88c69300`](../../commit/88c693007ad5adfddcb57745d07c0a90d8239010) | 2026-11-10 | Mauro Michelotti | build(release): porta la versione a 0.3.0 |
+| [`b1ea74c4`](../../commit/b1ea74c455df2b95428bd3f6cd1b51dbaf7c4321) | 2026-11-10 | Mauro Michelotti | feat(accounts): usa gli account di GitHub CLI e scegli l'account per repo |
+| [`62176c37`](../../commit/62176c37994a0faeaa8218d104cd92e327eab566) | 2026-11-10 | Mauro Michelotti | feat(issues): aggiungi elenco, dettaglio e branch dalle issue |
+| [`2ce72f1a`](../../commit/2ce72f1a7b24cbb988cf934a81e57004ff9f1241) | 2026-11-10 | Mauro Michelotti | fix(tabs): carica le pull request dopo il refresh del repo aperto |
+| [`52ca6ee8`](../../commit/52ca6ee8cc062fe14caa786b9c484e228972a16d) | 2026-11-10 | Mauro Michelotti | feat(tabs): aggiungi i gruppi di repository |
+
+</details>
+
 ## [0.2.0] - 2026-11-09
 
 Confronto con la versione precedente: [v0.1.1...v0.2.0](../../compare/v0.1.1...v0.2.0). Comprende 6 commit e 7 merge.

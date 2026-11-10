@@ -12,6 +12,8 @@ serde_json = "1"
 thiserror = "2"
 reqwest = { version = "0.13", features = ["json"] }
 keyring = "3.6"
+pulldown-cmark = { version = "0.13.6", default-features = false, features = ["html"] }
+ammonia = "4.1.8"
 
 # OS credential stores: GNOME Keyring/KWallet (Secret Service via pure-Rust D-Bus),
 # macOS Keychain, Windows Credential Manager.

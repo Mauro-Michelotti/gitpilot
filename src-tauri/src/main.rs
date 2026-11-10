@@ -3,7 +3,9 @@
 
 mod commands;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 use gitpilot_core::accounts::AccountStore;
 use gitpilot_core::settings::SettingsStore;
@@ -13,6 +15,8 @@ pub struct AppState {
     pub config_dir: PathBuf,
     pub accounts: AccountStore,
     pub settings: SettingsStore,
+    /// Account chosen for each `host/project` when several could serve it (see `commands::repo_provider`).
+    pub account_choice: Mutex<HashMap<String, String>>,
 }
 
 /// macOS menu bar: Tauri's default menu without "Close Window". Its native ⌘W
@@ -85,6 +89,7 @@ fn main() {
             app.manage(AppState {
                 accounts: AccountStore::new(&dir),
                 settings: SettingsStore::new(&dir),
+                account_choice: Mutex::new(HashMap::new()),
                 config_dir: dir,
             });
             Ok(())
@@ -155,6 +160,11 @@ fn main() {
             commands::provider_repos,
             commands::pull_requests,
             commands::pull_request_create,
+            commands::issues,
+            commands::issue_detail,
+            commands::branch_issues,
+            commands::branch_set_issue,
+            commands::provider_account,
         ])
         .run(tauri::generate_context!())
         .expect("errore all'avvio di GitPilot");

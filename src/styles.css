@@ -410,6 +410,126 @@ textarea {
 .tab-new {
   padding: 0 12px;
 }
+/* Ctrl/Cmd+click selection, to group tabs. */
+.tab.selected {
+  background: var(--bg-sel);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.tab-group-icon {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+.tab-group .tab-name {
+  font-weight: 600;
+}
+.tab-count {
+  flex-shrink: 0;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--bg-3);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+}
+.tab.active .tab-count {
+  background: var(--bg-hover);
+}
+
+/* ---------------------------------------------------------------- group bar (second-level tabs) */
+.groupbar {
+  display: flex;
+  align-items: stretch;
+  height: 32px;
+  padding-right: 6px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+.groupbar::-webkit-scrollbar {
+  height: 0;
+}
+.groupbar-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.groupbar-name:hover {
+  background: var(--bg-hover);
+}
+.subtab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  max-width: 280px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  position: relative;
+}
+.subtab:hover {
+  background: var(--bg-2);
+  color: var(--text);
+}
+.subtab.active {
+  color: var(--text);
+}
+.subtab.active::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.subtab.broken {
+  color: var(--danger);
+}
+.subtab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.subtab-branch {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-3);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.subtab-dirty {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+.subtab-add {
+  padding: 0 10px;
+}
+.groupbar-more {
+  align-self: center;
+}
 
 .toolbar {
   display: flex;
@@ -701,6 +821,49 @@ textarea {
 }
 .sb-pr {
   padding-left: 12px;
+}
+/* Issue filters: Aperte / Assegnate a me / Chiuse. */
+.sb-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 2px 12px 6px;
+}
+.sb-chip {
+  height: 21px;
+  padding: 0 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 11px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.sb-chip:hover {
+  color: var(--text);
+}
+.sb-chip.on {
+  background: var(--bg-sel);
+  border-color: var(--accent);
+  color: var(--text);
+}
+.sb-issue {
+  padding-left: 12px;
+}
+.issue-open {
+  flex-shrink: 0;
+  color: var(--ok);
+}
+.issue-closed {
+  flex-shrink: 0;
+  color: #a371f7;
+}
+.issue-comments {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--muted);
+  font-size: 11px;
 }
 .sb-flow-head .sb-label {
   font-weight: 600;
@@ -1633,6 +1796,17 @@ textarea {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.recent-group {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-3);
+  color: var(--muted);
+  font-size: 11px;
+}
 .home-accounts .btn {
   margin-top: 10px;
 }
@@ -1641,6 +1815,17 @@ textarea {
   align-items: center;
   gap: 10px;
   padding: 6px 0;
+}
+.prefs-gh {
+  align-items: flex-start;
+  margin: 4px 0 12px;
+}
+.prefs-gh input {
+  margin-top: 2px;
+}
+.prefs-gh .field-help {
+  display: block;
+  margin-top: 2px;
 }
 
 /* ---------------------------------------------------------------- dialogs */
@@ -1730,4 +1915,267 @@ textarea {
 }
 .add-account .btn-primary {
   align-self: flex-start;
+}
+
+/* ---------------------------------------------------------------- issue detail */
+.issue-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.issue-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.issue-title {
+  flex: 1;
+  min-width: 0;
+}
+.issue-title h2 {
+  margin: 0 0 8px;
+  font-size: 19px;
+  line-height: 1.3;
+  font-weight: 600;
+}
+.issue-sub {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12.5px;
+}
+.issue-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 12px;
+  font-weight: 600;
+  color: #fff;
+}
+.issue-state.open {
+  background: var(--ok);
+  color: var(--accent-text);
+}
+.issue-state.closed {
+  background: #8957e5;
+}
+.issue-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.issue-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 20px;
+  align-items: start;
+  padding: 16px 18px 24px;
+}
+.issue-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.issue-comment {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.issue-comment > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+}
+.issue-comment > .md {
+  padding: 4px 14px;
+}
+.avatar-sm {
+  width: 20px;
+  height: 20px;
+  font-size: 8.5px;
+}
+.issue-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+}
+.issue-meta section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 0 12px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+.issue-meta h4 {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.issue-person {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.issue-people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.issue-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.issue-label {
+  --label: var(--muted);
+  padding: 1px 8px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--label) 65%, transparent);
+  background: color-mix(in srgb, var(--label) 20%, transparent);
+  color: color-mix(in srgb, var(--label) 50%, var(--text));
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.issue-branch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 2px 4px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.issue-branch:hover {
+  background: var(--bg-hover);
+}
+.issue-branch svg {
+  flex-shrink: 0;
+}
+.issue-author {
+  color: var(--text);
+}
+.issue-branch .mono {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.issue-branch.current {
+  color: var(--accent);
+}
+
+/* Markdown rendered by the backend (issue bodies and comments). */
+.md {
+  font-size: 13.5px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.md > :first-child {
+  margin-top: 10px;
+}
+.md > :last-child {
+  margin-bottom: 10px;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  margin: 16px 0 8px;
+  line-height: 1.3;
+}
+.md h1 {
+  font-size: 18px;
+}
+.md h2 {
+  font-size: 16px;
+}
+.md h3,
+.md h4 {
+  font-size: 14px;
+}
+.md p,
+.md ul,
+.md ol,
+.md pre,
+.md table,
+.md blockquote {
+  margin: 0 0 10px;
+}
+.md ul,
+.md ol {
+  padding-left: 22px;
+}
+.md li + li {
+  margin-top: 3px;
+}
+.md li > input[type="checkbox"] {
+  margin: 0 6px 0 -18px;
+  vertical-align: -1px;
+}
+.md a {
+  color: var(--accent);
+  cursor: pointer;
+}
+.md code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg-3);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.md pre {
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  overflow: auto;
+}
+.md pre code {
+  padding: 0;
+  background: transparent;
+}
+.md blockquote {
+  padding: 0 12px;
+  border-left: 3px solid var(--border-strong);
+  color: var(--muted);
+}
+.md table {
+  border-collapse: collapse;
+  display: block;
+  overflow: auto;
+}
+.md th,
+.md td {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+}
+.md th {
+  background: var(--bg-2);
+}
+.md img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+.md hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 14px 0;
 }

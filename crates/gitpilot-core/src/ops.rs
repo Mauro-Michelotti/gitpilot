@@ -6,7 +6,7 @@ use std::path::Path;
 use crate::diff;
 use crate::error::{Error, Result};
 use crate::git::Git;
-use crate::model::{OpOutcome, PullAllReport, SkippedBranch, UpdatedBranch};
+use crate::model::{BranchIssue, OpOutcome, PullAllReport, SkippedBranch, UpdatedBranch};
 use crate::repo;
 use crate::tr;
 
@@ -582,6 +582,39 @@ pub fn delete_branch(git: &Git, name: &str, force: bool) -> Result<()> {
 pub fn rename_branch(git: &Git, old: &str, new: &str) -> Result<()> {
     git.run(["branch", "-m", old, new])?;
     Ok(())
+}
+
+const ISSUE_KEY: &str = "gitpilot-issue";
+
+/// Link a branch to the issue it was created for (`branch.<name>.gitpilot-issue` in the repo
+/// config: git moves it on rename and drops it on delete), or remove the link.
+pub fn set_branch_issue(git: &Git, branch: &str, issue: Option<u64>) -> Result<()> {
+    let key = format!("branch.{branch}.{ISSUE_KEY}");
+    match issue {
+        Some(n) => {
+            git.run(["config", "--local", &key, &n.to_string()])?;
+        }
+        // Exit code 5 when the key is not there: nothing to remove.
+        None => {
+            git.output(["config", "--local", "--unset", &key])?;
+        }
+    }
+    Ok(())
+}
+
+/// Branches linked to an issue.
+pub fn branch_issues(git: &Git) -> Result<Vec<BranchIssue>> {
+    // Exit code 1 when no branch is linked.
+    let out = git.output(["config", "--local", "--get-regexp", &format!(r"^branch\..*\.{ISSUE_KEY}$")])?;
+    let suffix = format!(".{ISSUE_KEY}");
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|line| {
+            let (key, value) = line.split_once(' ')?;
+            let branch = key.strip_prefix("branch.")?.strip_suffix(&suffix)?;
+            Some(BranchIssue { branch: branch.to_string(), issue: value.trim().parse().ok()? })
+        })
+        .collect())
 }
 
 pub fn set_upstream(git: &Git, branch: &str, upstream: &str) -> Result<()> {
