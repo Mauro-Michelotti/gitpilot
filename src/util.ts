@@ -107,3 +107,23 @@ export function buildTree<T>(items: T[], nameOf: (t: T) => string): TreeNode<T>[
   sort(root.children);
   return root.children;
 }
+
+/** Branch-friendly slug: "Conferma quantità prelevata" → "conferma-quantita-prelevata", cut at a word. */
+export function slugify(text: string, max = 48) {
+  const s = text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max);
+  const i = cut.lastIndexOf("-");
+  return (i > max / 2 ? cut.slice(0, i) : cut).replace(/-+$/, "");
+}
+
+/** Issue number at the start of a branch name, after its prefix: "feature/42-scanner" → 42. */
+export function issueOfBranch(branch: string): number | null {
+  const m = branch.match(/^(?:.*\/)?(\d+)-/);
+  return m ? Number(m[1]) : null;
+}

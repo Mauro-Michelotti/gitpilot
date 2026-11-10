@@ -4,7 +4,7 @@ use std::path::Path;
 
 use gitpilot_core::conflict::{self, Segment};
 use gitpilot_core::gitflow::{self, FinishOptions};
-use gitpilot_core::model::GitFlowConfig;
+use gitpilot_core::model::{BranchIssue, GitFlowConfig};
 use gitpilot_core::{ops, repo, Git};
 
 fn new_repo(dir: &Path) -> Git {
@@ -445,4 +445,35 @@ fn pull_all_branches_fast_forwards_what_it_can() {
     assert_eq!(rev(&b, "main"), head);
     assert_eq!(std::fs::read_to_string(dest.join("x.txt")).unwrap(), "edited\n");
     assert!(repo::status(&b).unwrap().conflicted.is_empty());
+}
+
+#[test]
+fn branch_issue_links() {
+    let t = tempfile::tempdir().unwrap();
+    let g = new_repo(t.path());
+    commit_file(&g, "a.txt", "1\n", "init");
+    assert!(ops::branch_issues(&g).unwrap().is_empty());
+
+    ops::create_branch(&g, "feature/42-conferma-quantita", None, false).unwrap();
+    ops::create_branch(&g, "fix-7", None, false).unwrap();
+    ops::set_branch_issue(&g, "feature/42-conferma-quantita", Some(42)).unwrap();
+    ops::set_branch_issue(&g, "fix-7", Some(7)).unwrap();
+    let mut links = ops::branch_issues(&g).unwrap();
+    links.sort_by(|a, b| a.branch.cmp(&b.branch));
+    assert_eq!(
+        links,
+        [
+            BranchIssue { branch: "feature/42-conferma-quantita".into(), issue: 42 },
+            BranchIssue { branch: "fix-7".into(), issue: 7 },
+        ]
+    );
+
+    // Git keeps the link on rename and drops it with the branch.
+    ops::rename_branch(&g, "fix-7", "bugfix/7-errore").unwrap();
+    ops::delete_branch(&g, "feature/42-conferma-quantita", true).unwrap();
+    assert_eq!(ops::branch_issues(&g).unwrap(), [BranchIssue { branch: "bugfix/7-errore".into(), issue: 7 }]);
+
+    ops::set_branch_issue(&g, "bugfix/7-errore", None).unwrap();
+    ops::set_branch_issue(&g, "bugfix/7-errore", None).unwrap(); // already gone: no error
+    assert!(ops::branch_issues(&g).unwrap().is_empty());
 }

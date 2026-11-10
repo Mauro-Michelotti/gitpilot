@@ -6,8 +6,9 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { api, errorText } from "./api";
 import { resolveLang, setLang, t } from "./i18n";
-import { emptyTab, isGroupId, openGroupOf, useStore, type MenuItem, type PromptSpec, type PromptValues, type RepoTab, type Selection } from "./store";
-import type { GitFlowKind, GraphResult, OpOutcome, RepoGroup, RepoOverview, Settings } from "./types";
+import { emptyTab, isGroupId, openGroupOf, useStore, type IssueFilter, type MenuItem, type PromptSpec, type PromptValues, type RepoTab, type Selection } from "./store";
+import type { GitFlowKind, GraphResult, Issue, OpOutcome, RepoGroup, RepoOverview, Settings } from "./types";
+import { issueOfBranch } from "./util";
 
 const S = () => useStore.getState();
 
@@ -195,10 +196,10 @@ async function mergeRecent() {
   if (S().settings) S().set({ settings: { ...S().settings!, recent: fresh.recent } });
 }
 
-/** Full refresh, then the pull requests: they need the overview to find the provider. */
+/** Full refresh, then pull requests and issues: they need the overview to find the provider. */
 async function loadRepo(path: string) {
   await refresh(path, { full: true });
-  loadPullRequests(path, true);
+  loadProviderLists(path);
 }
 
 export async function openRepo(path: string, opts: { activate?: boolean; quiet?: boolean; persist?: boolean } = {}) {
@@ -522,7 +523,7 @@ export function refresh(path: string, opts: { full?: boolean } = {}): Promise<vo
 
 /** Manual "Aggiorna" (toolbar button, F5, Ctrl/Cmd+R): reload the whole repo screen, pull requests included. */
 export function reload(path: string) {
-  loadPullRequests(path, true);
+  loadProviderLists(path);
   return refresh(path, { full: true });
 }
 
@@ -611,7 +612,7 @@ const ov = (path: string) => S().repos[path]?.overview ?? null;
 
 export async function fetchAll(path = active()) {
   await run("Fetch", () => api.fetch(path, newOpId()), { path, success: t("actions.fetch.done") });
-  loadPullRequests(path, true);
+  loadProviderLists(path);
 }
 
 export async function pull(path = active(), mode?: string) {
@@ -1032,7 +1033,95 @@ export async function gitflowFinish(path: string, kind: GitFlowKind, name: strin
   handleOutcome(path, o);
 }
 
-// ---------------------------------------------------------------- pull requests
+// ---------------------------------------------------------------- pull requests & issues
+
+/** Pull requests and issues of the provider (they need the overview, for provider and account). */
+export function loadProviderLists(path: string) {
+  loadPullRequests(path, true);
+  loadIssues(path, true);
+}
+
+export async function loadIssues(path: string, quiet = false) {
+  const tab = S().repos[path];
+  if (!tab) return;
+  if (!tab.overview?.provider?.accountId) {
+    S().patchRepo(path, { issues: null, issueError: null, issueLoading: false });
+    return;
+  }
+  const filter = tab.issueFilter;
+  // A load started for another filter in the meantime owns the result.
+  const stale = () => S().repos[path]?.issueFilter !== filter;
+  S().patchRepo(path, { issueLoading: true });
+  try {
+    const issues = await api.issues(path, filter.state, filter.mine);
+    if (stale()) return;
+    S().patchRepo(path, (t) => ({ issues, issueError: null, issueLoading: false, issueRevision: t.issueRevision + 1 }));
+  } catch (e) {
+    if (stale()) return;
+    S().patchRepo(path, { issueError: errorText(e), issueLoading: false });
+    if (!quiet) toast("error", errorText(e));
+  }
+}
+
+export function setIssueFilter(path: string, patch: Partial<IssueFilter>) {
+  const tab = S().repos[path];
+  if (!tab) return;
+  S().patchRepo(path, { issueFilter: { ...tab.issueFilter, ...patch }, issues: null, issueError: null });
+  loadIssues(path, true);
+}
+
+export function openIssue(path: string, number: number) {
+  S().patchRepo(path, { view: { kind: "issue", number } });
+}
+
+export function issueBranchDialog(path: string, issue: Issue) {
+  S().set({ issueBranch: { path, issue } });
+}
+
+/** Web page to open a new issue on the provider. */
+export function newIssueUrl(o: RepoOverview) {
+  const p = o.provider!;
+  return `${p.webUrl}/${p.kind === "gitlab" ? "-/issues" : "issues"}/new`;
+}
+
+/**
+ * Branch for an issue: Git Flow start (`kind` feature/bugfix/hotfix) or a plain branch, then
+ * the link the pull request uses to reference the issue.
+ */
+export async function createIssueBranch(
+  path: string,
+  issue: Issue,
+  o: { kind: GitFlowKind | "plain"; name: string; base: string; checkout: boolean; link: boolean },
+) {
+  const cfg = ov(path)?.gitflow;
+  const name = o.name.trim();
+  const flow = o.kind !== "plain" && cfg ? o.kind : null;
+  const branch = flow ? `${cfg![flow]}${name}` : name;
+  await run(
+    t("issues.branch.busy"),
+    async () => {
+      // Git Flow start always switches to the new branch.
+      if (flow && o.checkout) await api.gitflowStart(path, flow, name, o.base || null);
+      else await api.branchCreate(path, branch, o.base || null, o.checkout);
+      if (o.link) await api.branchSetIssue(path, branch, issue.number);
+    },
+    { path, success: t("actions.branch.created", { name: branch }) },
+  );
+}
+
+/** Issue the branch was created for: link saved by "Crea branch", or the number in its name. */
+async function linkedIssue(path: string, branch: string): Promise<Issue | null> {
+  if (!branch) return null;
+  const links = await api.branchIssues(path).catch(() => []);
+  const n = links.find((l) => l.branch === branch)?.issue ?? issueOfBranch(branch);
+  if (!n) return null;
+  const known = S().repos[path]?.issues?.find((i) => i.number === n);
+  if (known) return known;
+  return api.issueDetail(path, n).then(
+    (d) => d.issue,
+    () => null,
+  );
+}
 
 export async function loadPullRequests(path: string, quiet = false) {
   const o = ov(path);
@@ -1068,7 +1157,8 @@ export async function createPullRequest(path = active(), source?: string) {
     remoteBranches[0] ??
     "main";
   const isGh = o.provider.kind === "github";
-  const lastSubject = (await api.lastCommitMessage(path).catch(() => "")).split("\n")[0];
+  const [lastMessage, issue] = await Promise.all([api.lastCommitMessage(path).catch(() => ""), linkedIssue(path, src)]);
+  const lastSubject = lastMessage.split("\n")[0];
   const v = await prompt({
     title: isGh ? t("actions.pr.newGithub") : t("actions.pr.newGitlab"),
     message: t("actions.pr.projectOn", { project: o.provider.project, host: o.provider.host }),
@@ -1081,8 +1171,9 @@ export async function createPullRequest(path = active(), source?: string) {
         value: defaultTarget,
         options: (remoteBranches.length ? remoteBranches : [defaultTarget]).map((b) => ({ value: b, label: b })),
       },
-      { name: "title", label: t("actions.pr.title"), value: lastSubject, required: true },
-      { name: "body", label: t("actions.pr.body"), type: "textarea" },
+      { name: "title", label: t("actions.pr.title"), value: issue?.title ?? lastSubject, required: true },
+      // The provider closes the issue when the request is merged.
+      { name: "body", label: t("actions.pr.body"), type: "textarea", value: issue ? `Closes #${issue.number}` : undefined },
       { name: "draft", label: t("actions.pr.draft"), type: "checkbox", value: false },
     ],
     confirmLabel: t("actions.create"),

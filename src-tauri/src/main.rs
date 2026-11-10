@@ -155,6 +155,10 @@ fn main() {
             commands::provider_repos,
             commands::pull_requests,
             commands::pull_request_create,
+            commands::issues,
+            commands::issue_detail,
+            commands::branch_issues,
+            commands::branch_set_issue,
         ])
         .run(tauri::generate_context!())
         .expect("errore all'avvio di GitPilot");

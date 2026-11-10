@@ -10,7 +10,7 @@ use gitpilot_core::accounts::{self, Account, AccountStore};
 use gitpilot_core::conflict::{self, ConflictDoc};
 use gitpilot_core::gitflow::{self, FinishOptions};
 use gitpilot_core::model::*;
-use gitpilot_core::providers::{self, NewPullRequest, PullRequest, RemoteRepo};
+use gitpilot_core::providers::{self, Issue, IssueDetail, NewPullRequest, PullRequest, RemoteRepo};
 use gitpilot_core::settings::Settings;
 use gitpilot_core::{ops, remote_url, repo, tr, Git};
 use serde::Serialize;
@@ -546,4 +546,26 @@ pub async fn pull_requests(state: State<'_, AppState>, path: String) -> CmdResul
 pub async fn pull_request_create(state: State<'_, AppState>, path: String, pr: NewPullRequest) -> CmdResult<PullRequest> {
     let (acc, token, project) = repo_provider(&state, path).await?;
     providers::create_pull_request(&acc, &token, &project, &pr).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn issues(state: State<'_, AppState>, path: String, filter: String, mine: bool) -> CmdResult<Vec<Issue>> {
+    let (acc, token, project) = repo_provider(&state, path).await?;
+    providers::list_issues(&acc, &token, &project, &filter, mine).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn issue_detail(state: State<'_, AppState>, path: String, number: u64) -> CmdResult<IssueDetail> {
+    let (acc, token, project) = repo_provider(&state, path).await?;
+    providers::issue_detail(&acc, &token, &project, number).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn branch_issues(path: String) -> CmdResult<Vec<BranchIssue>> {
+    blocking(move || ops::branch_issues(&git(&path))).await
+}
+
+#[tauri::command]
+pub async fn branch_set_issue(path: String, branch: String, issue: Option<u64>) -> CmdResult<()> {
+    blocking(move || ops::set_branch_issue(&git(&path), &branch, issue)).await
 }

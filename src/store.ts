@@ -5,6 +5,7 @@ import type {
   AppInfo,
   FileChange,
   GraphResult,
+  Issue,
   PullRequest,
   RepoGroup,
   RepoOverview,
@@ -21,7 +22,14 @@ export type DiffSource =
 export type CenterView =
   | { kind: "graph" }
   | { kind: "diff"; source: DiffSource }
-  | { kind: "conflict"; file: string };
+  | { kind: "conflict"; file: string }
+  | { kind: "issue"; number: number };
+
+export interface IssueFilter {
+  state: "open" | "closed";
+  /** Only the issues assigned to the account. */
+  mine: boolean;
+}
 
 export interface RepoTab {
   path: string;
@@ -38,6 +46,12 @@ export interface RepoTab {
   prs: PullRequest[] | null;
   prError: string | null;
   prLoading: boolean;
+  issues: Issue[] | null;
+  issueError: string | null;
+  issueLoading: boolean;
+  issueFilter: IssueFilter;
+  /** Bumped when the issue list reloads, so an open issue reloads too. */
+  issueRevision: number;
   /** Bumped after every refresh so open diffs/details can reload. */
   revision: number;
 }
@@ -85,6 +99,12 @@ export interface PromptSpec {
 
 export type ModalKind = "clone" | "preferences" | null;
 
+/** "Crea branch da issue" dialog. */
+export interface IssueBranchSpec {
+  path: string;
+  issue: Issue;
+}
+
 interface State {
   info: AppInfo | null;
   settings: Settings | null;
@@ -103,6 +123,7 @@ interface State {
   menu: { x: number; y: number; items: MenuItem[] } | null;
   prompt: PromptSpec | null;
   modal: ModalKind;
+  issueBranch: IssueBranchSpec | null;
   busy: string | null;
   progress: string | null;
   set: (patch: Partial<State>) => void;
@@ -126,6 +147,11 @@ export function emptyTab(path: string, graphLimit = 2000): RepoTab {
     prs: null,
     prError: null,
     prLoading: false,
+    issues: null,
+    issueError: null,
+    issueLoading: false,
+    issueFilter: { state: "open", mine: false },
+    issueRevision: 0,
     revision: 0,
   };
 }
@@ -143,6 +169,7 @@ export const useStore = create<State>((set) => ({
   menu: null,
   prompt: null,
   modal: null,
+  issueBranch: null,
   busy: null,
   progress: null,
   set: (patch) => set(patch),
