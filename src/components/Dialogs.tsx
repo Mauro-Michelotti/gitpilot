@@ -245,7 +245,7 @@ export function PreferencesDialog() {
       A.toast("success", t(acc.tokenInFile ? "prefs.account.addedTokenInFile" : "prefs.account.added", { account }));
       // Repositories already open may now resolve their provider.
       const st = useStore.getState();
-      for (const p of st.tabs) A.refresh(p).then(() => A.loadPullRequests(p, true));
+      for (const p of Object.keys(st.repos)) A.refresh(p).then(() => A.loadPullRequests(p, true));
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -357,7 +357,7 @@ export function PreferencesDialog() {
                 const n = Number(e.target.value);
                 upd({ graphLimit: n });
                 const st = useStore.getState();
-                for (const p of st.tabs) {
+                for (const p of Object.keys(st.repos)) {
                   st.patchRepo(p, { graphLimit: n });
                   A.refresh(p, { full: true });
                 }

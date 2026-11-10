@@ -265,10 +265,25 @@ export interface RecentRepo {
   lastOpened: number;
 }
 
+/** Repositories shown as one tab with second-level tabs. */
+export interface RepoGroup {
+  /** `group:<random>`, never a path: it sits in `openTabs` next to repository paths. */
+  id: string;
+  name: string;
+  /** Repository roots in tab order; a repository belongs to one group at most. */
+  repos: string[];
+  /** Last active second-level tab. */
+  activeRepo: string | null;
+}
+
 export interface Settings {
   recent: RecentRepo[];
+  /** Top-level tabs: repository paths and group ids. */
   openTabs: string[];
+  /** Repository shown, also when it is a tab of a group. */
   activeTab: string | null;
+  /** Saved groups, open or not. */
+  groups: RepoGroup[];
   theme: "system" | "dark" | "light";
   pullMode: "ff" | "ff-only" | "rebase";
   graphLimit: number;

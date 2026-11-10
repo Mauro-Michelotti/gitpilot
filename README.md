@@ -10,6 +10,10 @@ GPG, LFS e `includeIf` funzionano esattamente come da terminale.
 ## Funzioni
 
 - **Repository**: apri, clona (da URL o dalla lista dei tuoi repo GitHub/GitLab), crea; schede multiple, recenti.
+- **Gruppi di repository**: più repo dello stesso progetto (es. backend, frontend, mobile) in una sola
+  scheda con sotto-schede. `Ctrl+clic` sulle schede per selezionarle, poi clic destro → *Raggruppa…*;
+  dal menu del gruppo rinomina, aggiungi/togli repo, sciogli. Chiudere un gruppo chiude tutti i suoi
+  repo, riaprirlo dalla Home li riapre; i gruppi restano salvati tra un avvio e l'altro.
 - **Grafo commit** virtualizzato (migliaia di commit), corsie colorate, avatar autore, chip branch/tag
   (locale + remoto uniti), riga WIP; doppio clic su un chip = checkout.
 - **Working copy**: stage/unstage per file o per **blocco** (hunk), scarta, commit con sommario/descrizione,
@@ -127,5 +131,7 @@ Le novità di ogni versione sono in [CHANGELOG.md](CHANGELOG.md).
 
 ## Scorciatoie
 
-`F5`/`Ctrl+R` aggiorna · `Ctrl+O` apri · `Ctrl+W` chiudi scheda · `Ctrl+Invio` commit ·
-`↑/↓` naviga il grafo · `Esc` chiude diff/dialoghi · `Ctrl +/-/0` zoom (su macOS `⌘` al posto di `Ctrl`)
+`F5`/`Ctrl+R` aggiorna · `Ctrl+O` apri · `Ctrl+W` chiudi scheda (o il gruppo) · `Ctrl+Invio` commit ·
+`Ctrl+Tab`/`Ctrl+Shift+Tab` scheda successiva/precedente · `Ctrl+PagGiù`/`Ctrl+PagSu` sotto-scheda del gruppo ·
+`↑/↓` naviga il grafo · `Esc` chiude diff/dialoghi · `Ctrl +/-/0` zoom (su macOS `⌘` al posto di `Ctrl`,
+tranne `Ctrl+Tab`)
