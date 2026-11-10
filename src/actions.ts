@@ -195,9 +195,10 @@ async function mergeRecent() {
   if (S().settings) S().set({ settings: { ...S().settings!, recent: fresh.recent } });
 }
 
-function loadRepo(path: string) {
+/** Full refresh, then the pull requests: they need the overview to find the provider. */
+async function loadRepo(path: string) {
+  await refresh(path, { full: true });
   loadPullRequests(path, true);
-  return refresh(path, { full: true });
 }
 
 export async function openRepo(path: string, opts: { activate?: boolean; quiet?: boolean; persist?: boolean } = {}) {
@@ -402,8 +403,8 @@ export async function pickAndAddToGroup(id: string) {
     const repos = fresh ? { ...st.repos, [root]: emptyTab(root, graphLimit()) } : st.repos;
     const gs = withoutRepos(groups(), [root]).map((x) => (x.id === id ? { ...x, repos: [...x.repos, root] } : x));
     await mergeRecent();
-    setActiveIn({ tabs: S().tabs.filter((e) => e !== root), repos, groups: gs }, root);
-    if (fresh) loadPullRequests(root, true);
+    commitTabs({ tabs: S().tabs.filter((e) => e !== root), repos, groups: gs, active: root });
+    await loadRepo(root);
   } catch (e) {
     toast("error", errorText(e));
   }
