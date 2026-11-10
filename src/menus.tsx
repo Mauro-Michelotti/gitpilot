@@ -25,12 +25,13 @@ import {
   Plus,
   Ungroup,
   X,
+  CircleDot,
 } from "lucide-react";
 import * as A from "./actions";
 import { api } from "./api";
 import { t } from "./i18n";
 import { isGroupId, useStore, type MenuItem } from "./store";
-import type { GitFlowKind, PullRequest, RepoOverview } from "./types";
+import type { GitFlowKind, Issue, PullRequest, RepoOverview } from "./types";
 
 const sep: MenuItem = { separator: true };
 const I = 14;
@@ -164,6 +165,17 @@ export function prMenu(path: string, o: RepoOverview, pr: PullRequest): MenuItem
     } },
     sep,
     { label: t("menu.pr.copyLink"), icon: <Copy size={I} />, action: () => A.copy(pr.webUrl) },
+  ];
+}
+
+export function issueMenu(path: string, issue: Issue): MenuItem[] {
+  return [
+    { label: t("issues.menu.open"), icon: <CircleDot size={I} />, action: () => A.openIssue(path, issue.number) },
+    { label: t("issues.menu.createBranch"), icon: <GitBranchPlus size={I} />, action: () => A.issueBranchDialog(path, issue) },
+    { label: t("issues.menu.browser"), icon: <ExternalLink size={I} />, action: () => A.openExternal(issue.webUrl) },
+    sep,
+    { label: t("issues.menu.copyLink"), icon: <Copy size={I} />, action: () => A.copy(issue.webUrl) },
+    { label: t("issues.menu.copyRef"), icon: <Copy size={I} />, action: () => A.copy(`#${issue.number}`), hint: `#${issue.number}` },
   ];
 }
 

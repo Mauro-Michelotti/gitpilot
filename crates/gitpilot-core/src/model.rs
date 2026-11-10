@@ -294,3 +294,11 @@ pub struct SkippedBranch {
     pub name: String,
     pub reason: String,
 }
+
+/// Branch created for an issue (see `ops::set_branch_issue`).
+#[derive(Serialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct BranchIssue {
+    pub branch: String,
+    pub issue: u64,
+}

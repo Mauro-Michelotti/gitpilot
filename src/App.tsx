@@ -8,6 +8,7 @@ import { CloneDialog, PreferencesDialog } from "./components/Dialogs";
 import { DiffView } from "./components/DiffView";
 import { Graph } from "./components/Graph";
 import { Home } from "./components/Home";
+import { IssueBranchDialog, IssueView } from "./components/IssueView";
 import { ContextMenu, PromptDialog, Toasts } from "./components/Overlays";
 import { Sidebar } from "./components/Sidebar";
 import { StateBanner } from "./components/StateBanner";
@@ -128,6 +129,8 @@ function RepoScreen({ tab }: { tab: RepoTab }) {
             <DiffView tab={tab} source={view.source} />
           ) : view.kind === "conflict" ? (
             <ConflictView tab={tab} file={view.file} />
+          ) : view.kind === "issue" ? (
+            <IssueView tab={tab} number={view.number} />
           ) : (
             <Graph tab={tab} />
           )}
@@ -231,6 +234,7 @@ export default function App() {
       <PromptDialog />
       {modal === "clone" && <CloneDialog />}
       {modal === "preferences" && <PreferencesDialog />}
+      <IssueBranchDialog />
       <Toasts />
     </div>
   );

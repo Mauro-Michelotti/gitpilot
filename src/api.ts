@@ -3,12 +3,15 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   Account,
   AppInfo,
+  BranchIssue,
   CommitDetails,
   ConflictDoc,
   FileDiff,
   FinishOptions,
   GitFlowConfig,
   GraphResult,
+  Issue,
+  IssueDetail,
   NewPullRequest,
   PullAllReport,
   OpOutcome,
@@ -106,6 +109,10 @@ export const api = {
   accountRemove: (id: string) => call<void>("account_remove", { id }),
   providerRepos: (accountId: string) => call<RemoteRepo[]>("provider_repos", { accountId }),
   pullRequests: (path: string) => call<PullRequest[]>("pull_requests", { path }),
+  issues: (path: string, filter: "open" | "closed", mine: boolean) => call<Issue[]>("issues", { path, filter, mine }),
+  issueDetail: (path: string, number: number) => call<IssueDetail>("issue_detail", { path, number }),
+  branchIssues: (path: string) => call<BranchIssue[]>("branch_issues", { path }),
+  branchSetIssue: (path: string, branch: string, issue: number | null) => call<void>("branch_set_issue", { path, branch, issue }),
   pullRequestCreate: (path: string, pr: NewPullRequest) => call<PullRequest>("pull_request_create", { path, pr }),
 };
 

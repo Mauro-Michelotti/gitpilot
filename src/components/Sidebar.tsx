@@ -5,11 +5,14 @@ import {
   ArrowUp,
   ChevronDown,
   ChevronRight,
+  CircleCheck,
+  CircleDot,
   Cloud,
   Flag,
   Folder,
   GitPullRequest,
   Laptop,
+  MessageSquare,
   Plus,
   RefreshCw,
   Search,
@@ -19,9 +22,9 @@ import {
 } from "lucide-react";
 import * as A from "../actions";
 import { useT } from "../i18n";
-import { localBranchMenu, prMenu, remoteBranchMenu, remoteMenu, stashMenu, tagMenu } from "../menus";
+import { issueMenu, localBranchMenu, prMenu, remoteBranchMenu, remoteMenu, stashMenu, tagMenu } from "../menus";
 import { useStore, type RepoTab } from "../store";
-import type { BranchInfo, GitFlowKind, RemoteBranch } from "../types";
+import type { BranchInfo, GitFlowKind, Issue, ProviderLink, RemoteBranch } from "../types";
 import { buildTree, relativeTime, type TreeNode } from "../util";
 import { ProviderIcon } from "./icons";
 
@@ -126,6 +129,9 @@ export function Sidebar({ tab }: { tab: RepoTab }) {
   const tags = o.tags.filter((tg) => match(q, tg.name));
   const stashes = o.stashes.filter((s) => match(q, s.message));
   const prs = (tab.prs ?? []).filter((p) => match(q, p.title) || match(q, p.sourceBranch));
+  const issues = (tab.issues ?? []).filter((i) => match(q, i.title) || match(q.replace(/^#/, ""), String(i.number)));
+  const openIssue = tab.view.kind === "issue" ? tab.view.number : null;
+  const filter = tab.issueFilter;
   const provider = o.provider && o.provider.kind !== "unknown" ? o.provider : null;
   const isGh = provider?.kind === "github";
 
@@ -237,11 +243,7 @@ export function Sidebar({ tab }: { tab: RepoTab }) {
             }
           >
             {!provider.accountId ? (
-              <div className="sb-empty">
-                {t("sidebar.noAccount", { host: provider.host })}{" "}
-                <a onClick={() => useStore.getState().set({ modal: "preferences" })}>{t("sidebar.connect", { provider: isGh ? "GitHub" : "GitLab" })}</a>
-                {accounts.length > 0 && t("sidebar.hostMismatch")}
-              </div>
+              <NoAccount provider={provider} hasAccounts={accounts.length > 0} />
             ) : tab.prError ? (
               <div className="sb-empty error-text">{tab.prError}</div>
             ) : prs.length === 0 ? (
@@ -262,6 +264,77 @@ export function Sidebar({ tab }: { tab: RepoTab }) {
                   {p.draft && <span className="badge">draft</span>}
                 </div>
               ))
+            )}
+          </Section>
+        )}
+
+        {provider && (
+          <Section
+            id="issues"
+            title={t("issues.section")}
+            icon={<CircleDot size={14} />}
+            count={tab.issues?.length}
+            actions={
+              <>
+                <button className="icon-btn" title={t("sidebar.refresh")} onClick={() => A.loadIssues(path)}>
+                  <RefreshCw size={13} className={tab.issueLoading ? "spin" : undefined} />
+                </button>
+                <button className="icon-btn" title={t("issues.new")} onClick={() => A.openExternal(A.newIssueUrl(o))}>
+                  <Plus size={14} />
+                </button>
+              </>
+            }
+          >
+            {!provider.accountId ? (
+              <NoAccount provider={provider} hasAccounts={accounts.length > 0} />
+            ) : (
+              <>
+                <div className="sb-chips">
+                  <button className={`sb-chip${filter.state === "open" ? " on" : ""}`} onClick={() => A.setIssueFilter(path, { state: "open" })}>
+                    {t("issues.filter.open")}
+                  </button>
+                  <button className={`sb-chip${filter.mine ? " on" : ""}`} onClick={() => A.setIssueFilter(path, { mine: !filter.mine })}>
+                    {t("issues.filter.mine")}
+                  </button>
+                  <button className={`sb-chip${filter.state === "closed" ? " on" : ""}`} onClick={() => A.setIssueFilter(path, { state: "closed" })}>
+                    {t("issues.filter.closed")}
+                  </button>
+                </div>
+                {tab.issueError ? (
+                  <div className="sb-empty error-text">{tab.issueError}</div>
+                ) : issues.length === 0 ? (
+                  <div className="sb-empty">
+                    {tab.issueLoading || !tab.issues
+                      ? t("sidebar.loading")
+                      : filter.mine
+                        ? t("issues.emptyMine")
+                        : filter.state === "closed"
+                          ? t("issues.emptyClosed")
+                          : t("issues.emptyOpen")}
+                  </div>
+                ) : (
+                  issues.map((i) => (
+                    <div
+                      key={i.number}
+                      className={`sb-item sb-issue${openIssue === i.number ? " selected" : ""}`}
+                      onClick={() => A.openIssue(path, i.number)}
+                      onContextMenu={(e) => A.showMenu(e, issueMenu(path, i))}
+                      title={issueTip(i, t)}
+                    >
+                      {i.state === "open" ? <CircleDot size={13} className="issue-open" /> : <CircleCheck size={13} className="issue-closed" />}
+                      <span className="sb-label">
+                        <span className="muted">#{i.number}</span> {i.title}
+                      </span>
+                      {i.comments > 0 && (
+                        <span className="sb-meta issue-comments">
+                          <MessageSquare size={11} />
+                          {i.comments}
+                        </span>
+                      )}
+                    </div>
+                  ))
+                )}
+              </>
             )}
           </Section>
         )}
@@ -347,6 +420,29 @@ export function Sidebar({ tab }: { tab: RepoTab }) {
       </div>
     </aside>
   );
+}
+
+function NoAccount({ provider, hasAccounts }: { provider: ProviderLink; hasAccounts: boolean }) {
+  const t = useT();
+  return (
+    <div className="sb-empty">
+      {t("sidebar.noAccount", { host: provider.host })}{" "}
+      <a onClick={() => useStore.getState().set({ modal: "preferences" })}>{t("sidebar.connect", { provider: provider.kind === "github" ? "GitHub" : "GitLab" })}</a>
+      {hasAccounts && t("sidebar.hostMismatch")}
+    </div>
+  );
+}
+
+function issueTip(i: Issue, t: ReturnType<typeof useT>) {
+  return [
+    `#${i.number} ${i.title}`,
+    t("issues.tip.by", { author: i.author }),
+    i.labels.length ? t("issues.tip.labels", { labels: i.labels.map((l) => l.name).join(", ") }) : "",
+    i.assignees.length ? t("issues.tip.assignees", { names: i.assignees.join(", ") }) : "",
+    i.updatedAt ? t("issues.tip.updated", { when: relativeTime(Date.parse(i.updatedAt) / 1000) }) : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function RemoteGroup({ name, url, children, onMenu }: { name: string; url: string; children: ReactNode; onMenu: (e: React.MouseEvent) => void }) {
