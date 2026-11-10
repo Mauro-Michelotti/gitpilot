@@ -6,7 +6,7 @@ use reqwest::{Client, Method, RequestBuilder, Response};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::accounts::Account;
+use crate::accounts::{Access, Account};
 use crate::error::{Error, Result};
 use crate::markdown;
 use crate::tr;
@@ -325,6 +325,35 @@ pub async fn create_pull_request(acc: &Account, token: &str, project: &str, pr: 
     Ok(pr_from(&acc.kind, &v))
 }
 
+/// Access from the project as the account sees it (GitHub `permissions`, GitLab access levels:
+/// 30 = developer and above can push).
+fn access_from(kind: &str, project: &Value) -> Access {
+    let write = match kind {
+        "github" => ["admin", "maintain", "push"].iter().any(|k| project["permissions"][*k].as_bool() == Some(true)),
+        _ => ["project_access", "group_access"]
+            .iter()
+            .any(|k| project["permissions"][*k]["access_level"].as_u64().unwrap_or(0) >= 30),
+    };
+    if write {
+        Access::Write
+    } else {
+        Access::Read
+    }
+}
+
+/// What the account can do on the project; any failure (404, 401, network) counts as no access.
+pub async fn project_access(acc: &Account, token: &str, project: &str) -> Access {
+    let url = match acc.kind.as_str() {
+        "github" => format!("{}/repos/{project}", acc.api_url),
+        _ => format!("{}/projects/{}", acc.api_url, url_encode(project)),
+    };
+    let Ok(c) = client() else { return Access::None };
+    match get_json(&c, &acc.kind, &url, token).await {
+        Ok((v, _)) => access_from(&acc.kind, &v),
+        Err(_) => Access::None,
+    }
+}
+
 fn issue_from(kind: &str, v: &Value) -> Issue {
     let names = |list: &Value, key: &str| -> Vec<String> {
         list.as_array().into_iter().flatten().map(|a| s(&a[key])).filter(|n| !n.is_empty()).collect()
@@ -466,6 +495,17 @@ pub async fn issue_detail(acc: &Account, token: &str, project: &str, number: u64
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn project_access_levels() {
+        let gh = |perm: Value| access_from("github", &json!({ "permissions": perm }));
+        assert_eq!(gh(json!({ "admin": false, "push": true, "pull": true })), Access::Write);
+        assert_eq!(gh(json!({ "admin": false, "maintain": false, "push": false, "pull": true })), Access::Read);
+        assert_eq!(access_from("github", &json!({ "full_name": "o/r" })), Access::Read);
+        let gl = |perm: Value| access_from("gitlab", &json!({ "permissions": perm }));
+        assert_eq!(gl(json!({ "project_access": null, "group_access": { "access_level": 40 } })), Access::Write);
+        assert_eq!(gl(json!({ "project_access": { "access_level": 20 }, "group_access": null })), Access::Read);
+    }
 
     #[test]
     fn github_issue() {

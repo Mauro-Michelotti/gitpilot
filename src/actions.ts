@@ -101,6 +101,12 @@ export async function reloadAccounts() {
   S().set({ accounts: await api.accountsList() });
 }
 
+/** Accounts changed: open repositories resolve their provider account again. */
+export async function accountsChanged() {
+  await reloadAccounts();
+  for (const p of Object.keys(S().repos)) refresh(p).then(() => loadProviderLists(p));
+}
+
 let booted = false;
 export async function boot() {
   if (booted) return;
@@ -1157,11 +1163,18 @@ export async function createPullRequest(path = active(), source?: string) {
     remoteBranches[0] ??
     "main";
   const isGh = o.provider.kind === "github";
-  const [lastMessage, issue] = await Promise.all([api.lastCommitMessage(path).catch(() => ""), linkedIssue(path, src)]);
+  const [lastMessage, issue, account] = await Promise.all([
+    api.lastCommitMessage(path).catch(() => ""),
+    linkedIssue(path, src),
+    api.providerAccount(path).catch(() => null),
+  ]);
   const lastSubject = lastMessage.split("\n")[0];
   const v = await prompt({
     title: isGh ? t("actions.pr.newGithub") : t("actions.pr.newGitlab"),
-    message: t("actions.pr.projectOn", { project: o.provider.project, host: o.provider.host }),
+    // With several accounts on the host, say which one creates the request.
+    message: account
+      ? t("actions.pr.as", { project: o.provider.project, host: o.provider.host, user: account.username })
+      : t("actions.pr.projectOn", { project: o.provider.project, host: o.provider.host }),
     fields: [
       { name: "source", label: t("actions.pr.source"), value: src, required: true, mono: true },
       {

@@ -238,14 +238,12 @@ export function PreferencesDialog() {
     setError(null);
     try {
       const acc = await api.accountAdd(kind, host, token);
-      await A.reloadAccounts();
       setToken("");
       setHost("");
       const account = `${acc.username}@${acc.host}`;
       A.toast("success", t(acc.tokenInFile ? "prefs.account.addedTokenInFile" : "prefs.account.added", { account }));
       // Repositories already open may now resolve their provider.
-      const st = useStore.getState();
-      for (const p of Object.keys(st.repos)) A.refresh(p).then(() => A.loadProviderLists(p));
+      A.accountsChanged();
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -256,7 +254,7 @@ export function PreferencesDialog() {
   const remove = async (id: string) => {
     if (!(await A.confirm(t("prefs.account.removeTitle"), t("prefs.account.removeMessage"), { danger: true, confirmLabel: t("common.remove") }))) return;
     await api.accountRemove(id).catch((e) => A.toast("error", errorText(e)));
-    await A.reloadAccounts();
+    await A.accountsChanged();
   };
 
   const upd = (patch: Partial<Settings>) => A.saveSettings(patch);
@@ -279,11 +277,31 @@ export function PreferencesDialog() {
                   {a.tokenInFile && t("prefs.tokenInFile")}
                 </span>
               </div>
-              <button className="icon-btn danger" title={t("common.remove")} onClick={() => remove(a.id)}>
-                <Trash size={14} />
-              </button>
+              {a.fromGh ? (
+                <span className="badge" title={t("prefs.fromGh.hint")}>
+                  {t("prefs.fromGh")}
+                </span>
+              ) : (
+                <button className="icon-btn danger" title={t("common.remove")} onClick={() => remove(a.id)}>
+                  <Trash size={14} />
+                </button>
+              )}
             </div>
           ))}
+          <label className="check small prefs-gh">
+            <input
+              type="checkbox"
+              checked={settings?.useGhAccounts ?? true}
+              onChange={async (e) => {
+                await A.saveSettings({ useGhAccounts: e.target.checked });
+                A.accountsChanged();
+              }}
+            />
+            <span>
+              {t("prefs.useGh")}
+              <span className="field-help">{t("prefs.useGh.help")}</span>
+            </span>
+          </label>
 
           <div className="add-account">
             <div className="seg">

@@ -32,6 +32,9 @@ pub struct Account {
     /// Token stored in a file because no OS keyring was available.
     #[serde(default)]
     pub token_in_file: bool,
+    /// Account of the GitHub CLI: its token is asked to `gh` when needed, never stored here.
+    #[serde(default)]
+    pub from_gh: bool,
 }
 
 /// Derive web/API URLs from what the user typed ("", "gitlab.acme.it", "https://ghe.acme.com").
@@ -98,8 +101,26 @@ impl AccountStore {
         write_atomic(&self.accounts_file(), &serde_json::to_vec_pretty(list)?, false)
     }
 
+    /// Accounts added in GitPilot, then (with `with_gh`) those of the GitHub CLI that are not
+    /// already among them.
+    pub fn all(&self, with_gh: bool) -> Vec<Account> {
+        let mut list = self.list().unwrap_or_default();
+        if with_gh {
+            for a in crate::gh::accounts() {
+                let known = list
+                    .iter()
+                    .any(|m| m.host.eq_ignore_ascii_case(&a.host) && m.username.eq_ignore_ascii_case(&a.username));
+                if !known {
+                    list.push(a);
+                }
+            }
+        }
+        list
+    }
+
+    /// Account by id, GitHub CLI accounts included.
     pub fn get(&self, id: &str) -> Result<Account> {
-        self.list()?
+        self.all(id.starts_with("gh:"))
             .into_iter()
             .find(|a| a.id == id)
             .ok_or_else(|| Error::msg(tr!("account non trovato", "account not found")))
@@ -136,6 +157,9 @@ impl AccountStore {
     }
 
     pub fn token(&self, account: &Account) -> Result<String> {
+        if account.from_gh {
+            return crate::gh::token(&account.host, &account.username);
+        }
         if account.token_in_file {
             return self
                 .file_tokens()?
@@ -179,6 +203,27 @@ impl AccountStore {
     }
 }
 
+/// Access of an account to a project, as the provider reports it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Access {
+    /// Not found, not authorized, or the check failed.
+    None,
+    Read,
+    Write,
+}
+
+/// Account to use for a project among those of its host: write access first, then the one
+/// named like the project owner, then those added in GitPilot over the GitHub CLI ones.
+pub fn pick_account<'a>(candidates: &'a [(Account, Access)], project: &str) -> Option<&'a Account> {
+    let owner = project.split('/').next().unwrap_or_default();
+    candidates
+        .iter()
+        .enumerate()
+        // max_by_key keeps the last of equal keys: the reversed index makes the first one win.
+        .max_by_key(|(i, (a, access))| (*access, a.username.eq_ignore_ascii_case(owner), !a.from_gh, std::cmp::Reverse(*i)))
+        .map(|(_, (a, _))| a)
+}
+
 fn write_atomic(path: &Path, data: &[u8], private: bool) -> Result<()> {
     let tmp = path.with_extension("tmp");
     {
@@ -203,6 +248,43 @@ fn write_atomic(path: &Path, data: &[u8], private: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn acc(username: &str, from_gh: bool) -> Account {
+        Account {
+            id: format!("{}:github.com:{username}", if from_gh { "gh" } else { "github" }),
+            kind: "github".into(),
+            host: "github.com".into(),
+            base_url: "https://github.com".into(),
+            api_url: "https://api.github.com".into(),
+            username: username.into(),
+            name: None,
+            avatar_url: None,
+            token_in_file: false,
+            from_gh,
+        }
+    }
+
+    #[test]
+    fn picks_the_account_for_the_project() {
+        let work = acc("mauro-work", true);
+        let personal = acc("Mauro-Personal", true);
+        let pick = |c: &[(Account, Access)], p: &str| pick_account(c, p).map(|a| a.username.clone());
+        // Organisation repo: only the work account can push.
+        let c = [(work.clone(), Access::Write), (personal.clone(), Access::Read)];
+        assert_eq!(pick(&c, "ACME/app").as_deref(), Some("mauro-work"));
+        // Public personal repo: both can read, only the owner can push.
+        let c = [(work.clone(), Access::Read), (personal.clone(), Access::Write)];
+        assert_eq!(pick(&c, "Mauro-Personal/gitpilot").as_deref(), Some("Mauro-Personal"));
+        // Same access: the owner wins, then the account added in GitPilot, then the first.
+        let c = [(work.clone(), Access::Read), (personal.clone(), Access::Read)];
+        assert_eq!(pick(&c, "mauro-personal/x").as_deref(), Some("Mauro-Personal"));
+        let manual = acc("other", false);
+        let c = [(work.clone(), Access::Read), (manual, Access::Read)];
+        assert_eq!(pick(&c, "ACME/app").as_deref(), Some("other"));
+        let c = [(work, Access::None), (personal, Access::None)];
+        assert_eq!(pick(&c, "ACME/app").as_deref(), Some("mauro-work"));
+        assert!(pick_account(&[], "ACME/app").is_none());
+    }
 
     #[test]
     fn endpoint_derivation() {

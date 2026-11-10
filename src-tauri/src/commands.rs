@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use gitpilot_core::accounts::{self, Account, AccountStore};
+use gitpilot_core::accounts::{self, Access, Account, AccountStore};
 use gitpilot_core::conflict::{self, ConflictDoc};
 use gitpilot_core::gitflow::{self, FinishOptions};
 use gitpilot_core::model::*;
@@ -85,6 +85,9 @@ pub async fn settings_get(state: State<'_, AppState>) -> CmdResult<Settings> {
 
 #[tauri::command]
 pub async fn settings_save(state: State<'_, AppState>, settings: Settings) -> CmdResult<()> {
+    if settings.use_gh_accounts != state.settings.load().use_gh_accounts {
+        forget_account_choices(&state);
+    }
     state.settings.save(&settings).map_err(|e| e.to_string())
 }
 
@@ -134,9 +137,18 @@ pub async fn repo_clone(app: AppHandle, state: State<'_, AppState>, op_id: Strin
 #[tauri::command]
 pub async fn repo_overview(state: State<'_, AppState>, path: String) -> CmdResult<RepoOverview> {
     let dir = state.config_dir.clone();
+    let with_gh = state.settings.load().use_gh_accounts;
+    let choices = state.account_choice.lock().map(|m| m.clone()).unwrap_or_default();
     blocking(move || {
-        let accounts = AccountStore::new(&dir).list().unwrap_or_default();
-        repo::overview(&git(&path), &accounts)
+        let accounts = AccountStore::new(&dir).all(with_gh);
+        let mut o = repo::overview(&git(&path), &accounts)?;
+        // Several accounts on the host: show the one actually chosen for this project, once known.
+        if let Some(p) = o.provider.as_mut() {
+            if let Some(id) = choices.get(&choice_key(&p.host, &p.project)).filter(|id| accounts.iter().any(|a| &a.id == *id)) {
+                p.account_id = Some(id.clone());
+            }
+        }
+        Ok(o)
     })
     .await
 }
@@ -465,7 +477,20 @@ pub async fn gitflow_finish(
 
 #[tauri::command]
 pub async fn accounts_list(state: State<'_, AppState>) -> CmdResult<Vec<Account>> {
-    state.accounts.list().map_err(|e| e.to_string())
+    let with_gh = state.settings.load().use_gh_accounts;
+    let dir = state.config_dir.clone();
+    blocking(move || Ok(AccountStore::new(&dir).all(with_gh))).await
+}
+
+fn choice_key(host: &str, project: &str) -> String {
+    format!("{}/{}", host.to_lowercase(), project.to_lowercase())
+}
+
+/// Accounts changed: the choice for each project has to be made again.
+fn forget_account_choices(state: &State<'_, AppState>) {
+    if let Ok(mut m) = state.account_choice.lock() {
+        m.clear();
+    }
 }
 
 #[tauri::command]
@@ -486,13 +511,16 @@ pub async fn account_add(state: State<'_, AppState>, kind: String, host: String,
         name: user.name,
         avatar_url: user.avatar_url,
         token_in_file: false,
+        from_gh: false,
     };
+    forget_account_choices(&state);
     let dir = state.config_dir.clone();
     blocking(move || AccountStore::new(&dir).upsert(account, &token)).await
 }
 
 #[tauri::command]
 pub async fn account_remove(state: State<'_, AppState>, id: String) -> CmdResult<()> {
+    forget_account_choices(&state);
     let dir = state.config_dir.clone();
     blocking(move || AccountStore::new(&dir).remove(&id)).await
 }
@@ -513,27 +541,64 @@ pub async fn provider_repos(state: State<'_, AppState>, account_id: String) -> C
     providers::list_repos(&acc, &token).await.map_err(|e| e.to_string())
 }
 
-/// Provider + account for the repository's main remote.
+/// Provider, account and token for the repository's main remote. With several accounts on the
+/// host (e.g. personal and work on github.com) the provider is asked what each one can do on
+/// the project, and the choice is kept for the session.
 async fn repo_provider(state: &State<'_, AppState>, path: String) -> CmdResult<(Account, String, String)> {
     let dir = state.config_dir.clone();
-    let link = blocking(move || {
-        let accounts = AccountStore::new(&dir).list()?;
+    let with_gh = state.settings.load().use_gh_accounts;
+    let (link, candidates) = blocking(move || {
+        let accounts = AccountStore::new(&dir).all(with_gh);
         let remotes = repo::remotes(&git(&path))?;
-        Ok(remote_url::provider_link(&remotes, &accounts))
+        let link = remote_url::provider_link(&remotes, &accounts);
+        let candidates: Vec<Account> = match &link {
+            Some(l) => accounts.into_iter().filter(|a| a.host.eq_ignore_ascii_case(&l.host)).collect(),
+            None => vec![],
+        };
+        Ok((link, candidates))
     })
-    .await?
-    .ok_or_else(|| tr!("il repository non ha un remote GitHub/GitLab riconosciuto", "the repository has no recognized GitHub/GitLab remote"))?;
-    let id = link
-        .account_id
-        .ok_or_else(|| {
-            tr!(
-                "nessun account configurato per {}: aggiungilo nelle Preferenze",
-                "no account configured for {}: add one in Preferences",
-                link.host
-            )
-        })?;
-    let (acc, token) = account_with_token(state.config_dir.clone(), id).await?;
-    Ok((acc, token, link.project))
+    .await?;
+    let link = link.ok_or_else(|| tr!("il repository non ha un remote GitHub/GitLab riconosciuto", "the repository has no recognized GitHub/GitLab remote"))?;
+    if candidates.is_empty() {
+        return Err(tr!(
+            "nessun account configurato per {}: aggiungilo nelle Preferenze",
+            "no account configured for {}: add one in Preferences",
+            link.host
+        ));
+    }
+    let key = choice_key(&link.host, &link.project);
+    let cached = state.account_choice.lock().ok().and_then(|m| m.get(&key).cloned());
+    let account = match cached.and_then(|id| candidates.iter().find(|a| a.id == id)) {
+        Some(a) => a.clone(),
+        None if candidates.len() == 1 => candidates[0].clone(),
+        None => {
+            let mut scored = Vec::new();
+            for acc in candidates {
+                let access = match account_token(state.config_dir.clone(), acc.clone()).await {
+                    Ok(token) => providers::project_access(&acc, &token, &link.project).await,
+                    Err(_) => Access::None,
+                };
+                scored.push((acc, access));
+            }
+            let best = accounts::pick_account(&scored, &link.project).cloned().expect("at least one candidate");
+            if let Ok(mut m) = state.account_choice.lock() {
+                m.insert(key, best.id.clone());
+            }
+            best
+        }
+    };
+    let token = account_token(state.config_dir.clone(), account.clone()).await?;
+    Ok((account, token, link.project))
+}
+
+async fn account_token(dir: PathBuf, account: Account) -> CmdResult<String> {
+    blocking(move || AccountStore::new(&dir).token(&account)).await
+}
+
+/// Account used for the repository's pull requests and issues.
+#[tauri::command]
+pub async fn provider_account(state: State<'_, AppState>, path: String) -> CmdResult<Account> {
+    Ok(repo_provider(&state, path).await?.0)
 }
 
 #[tauri::command]
