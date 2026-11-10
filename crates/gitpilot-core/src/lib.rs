@@ -4,6 +4,7 @@ pub mod accounts;
 pub mod conflict;
 pub mod diff;
 pub mod error;
+pub mod gh;
 pub mod git;
 pub mod gitflow;
 pub mod graph;

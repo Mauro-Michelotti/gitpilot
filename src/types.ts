@@ -225,6 +225,8 @@ export interface Account {
   name: string | null;
   avatarUrl: string | null;
   tokenInFile: boolean;
+  /** Account of the GitHub CLI: managed with `gh auth`, its token is never stored by GitPilot. */
+  fromGh: boolean;
 }
 
 export interface RemoteRepo {
@@ -331,6 +333,8 @@ export interface Settings {
   cloneDir: string | null;
   authorAvatars: boolean;
   language: "system" | "it" | "en";
+  /** Use the accounts of the GitHub CLI (`gh auth login`). */
+  useGhAccounts: boolean;
 }
 
 export interface AppInfo {

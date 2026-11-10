@@ -31,6 +31,9 @@ GPG, LFS e `includeIf` funzionano esattamente come da terminale.
 - **GitHub / GitLab**: account con personal access token (salvato nel portachiavi di sistema:
   GNOME Keyring/KWallet, Portachiavi macOS), lista PR/MR del repo, creazione PR/MR, clone dai tuoi repo.
   Il token viene usato anche per autenticare pull/push via HTTPS.
+  Se la GitHub CLI è autenticata (`gh auth login`) i suoi account si usano da soli, senza token
+  (Preferenze → *Usa gli account di GitHub CLI*); con più account sullo stesso server, per ogni
+  repository si usa quello che può scriverci (es. personale per i tuoi repo, lavoro per quelli dell'organizzazione).
 - **Issue**: elenco nella sidebar (aperte, chiuse, assegnate a me), dettaglio con descrizione e commenti
   in Markdown; da un'issue *Crea branch* apre una feature/bugfix/hotfix Git Flow (o un branch normale)
   chiamata `<numero>-<titolo>` e la collega all'issue, così la PR/MR nasce con titolo e `Closes #N`.

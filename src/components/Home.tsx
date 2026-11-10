@@ -127,6 +127,7 @@ export function Home() {
                 <ProviderIcon kind={a.kind} />
                 <span>{a.name ?? a.username}</span>
                 <span className="muted small">{a.host}</span>
+                {a.fromGh && <span className="badge">GitHub CLI</span>}
               </div>
             ))}
             <button className="btn" onClick={() => set({ modal: "preferences" })}>

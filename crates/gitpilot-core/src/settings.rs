@@ -46,6 +46,8 @@ pub struct Settings {
     pub author_avatars: bool,
     /// system | it | en
     pub language: String,
+    /// Use the accounts of the GitHub CLI (`gh auth login`) for pull requests and issues.
+    pub use_gh_accounts: bool,
 }
 
 impl Default for Settings {
@@ -61,6 +63,7 @@ impl Default for Settings {
             clone_dir: None,
             author_avatars: true,
             language: "system".into(),
+            use_gh_accounts: true,
         }
     }
 }

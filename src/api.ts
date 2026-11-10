@@ -109,6 +109,8 @@ export const api = {
   accountRemove: (id: string) => call<void>("account_remove", { id }),
   providerRepos: (accountId: string) => call<RemoteRepo[]>("provider_repos", { accountId }),
   pullRequests: (path: string) => call<PullRequest[]>("pull_requests", { path }),
+  /** Account used for the repository's pull requests and issues. */
+  providerAccount: (path: string) => call<Account>("provider_account", { path }),
   issues: (path: string, filter: "open" | "closed", mine: boolean) => call<Issue[]>("issues", { path, filter, mine }),
   issueDetail: (path: string, number: number) => call<IssueDetail>("issue_detail", { path, number }),
   branchIssues: (path: string) => call<BranchIssue[]>("branch_issues", { path }),
