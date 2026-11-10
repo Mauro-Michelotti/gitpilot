@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import * as A from "./actions";
 import { useT } from "./i18n";
-import { useActiveRepo, useStore, type RepoTab } from "./store";
+import { openGroupOf, useActiveRepo, useStore, type RepoTab } from "./store";
 import { ConflictView } from "./components/ConflictView";
 import { DetailPanel } from "./components/DetailPanel";
 import { CloneDialog, PreferencesDialog } from "./components/Dialogs";
@@ -11,7 +11,7 @@ import { Home } from "./components/Home";
 import { ContextMenu, PromptDialog, Toasts } from "./components/Overlays";
 import { Sidebar } from "./components/Sidebar";
 import { StateBanner } from "./components/StateBanner";
-import { TabBar, Toolbar } from "./components/Toolbar";
+import { GroupBar, TabBar, Toolbar } from "./components/Toolbar";
 
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
 
@@ -101,13 +101,16 @@ function RepoScreen({ tab }: { tab: RepoTab }) {
   const [left, setLeft, saveLeft] = usePersistedWidth("gp.leftW", 260, LEFT_MIN, LEFT_MAX);
   const [right, setRight, saveRight] = usePersistedWidth("gp.rightW", 380, RIGHT_MIN, RIGHT_MAX);
   const view = tab.view;
+  const inGroup = useStore((s) => !!openGroupOf(s.settings?.groups, s.tabs, tab.path));
 
   if (tab.error && !tab.overview) {
+    // A repository of a group (moved or deleted on disk) is taken out of the group, not closed with it.
     return (
       <div className="empty big">
         <p className="error-text">{tab.error}</p>
-        <button className="btn" onClick={() => A.closeTab(tab.path)}>
-          {t("app.closeTab")}
+        {!tab.error.includes(tab.path) && <p className="muted small mono">{tab.path}</p>}
+        <button className="btn" onClick={() => (inGroup ? A.removeFromGroup(tab.path) : A.closeTab(tab.path))}>
+          {inGroup ? t("groups.removeBroken") : t("app.closeTab")}
         </button>
       </div>
     );
@@ -186,7 +189,13 @@ export default function App() {
         A.pickAndOpenRepo();
       } else if (mod && e.key.toLowerCase() === "w" && st.active) {
         e.preventDefault();
-        A.closeTab(st.active);
+        A.closeTab(st.active); // a repository of a group closes the whole group
+      } else if (e.ctrlKey && e.key === "Tab") {
+        e.preventDefault();
+        A.cycleTab(e.shiftKey ? -1 : 1);
+      } else if (mod && (e.key === "PageDown" || e.key === "PageUp")) {
+        e.preventDefault();
+        A.cycleGroupTab(e.key === "PageDown" ? 1 : -1);
       } else if (mod && (e.key === "=" || e.key === "+")) {
         e.preventDefault();
         zoom = Math.min(2, +(zoom + 0.1).toFixed(2));
@@ -215,6 +224,7 @@ export default function App() {
       }}
     >
       <TabBar />
+      <GroupBar />
       <div className="screen">{tab ? <RepoScreen key={tab.path} tab={tab} /> : <Home />}</div>
       <StatusBar />
       <ContextMenu />

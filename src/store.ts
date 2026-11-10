@@ -6,6 +6,7 @@ import type {
   FileChange,
   GraphResult,
   PullRequest,
+  RepoGroup,
   RepoOverview,
   Settings,
   StatusResult,
@@ -88,9 +89,14 @@ interface State {
   info: AppInfo | null;
   settings: Settings | null;
   accounts: Account[];
+  /** Top-level tabs: repository paths and group ids (the repositories of a group are not listed). */
   tabs: string[];
+  /** Repository on screen (also when it is a tab of a group); null on the home screen. */
   active: string | null;
+  /** Every open repository, those of the open groups included. */
   repos: Record<string, RepoTab>;
+  /** Repository tabs selected with Ctrl/Cmd+click, to group them. */
+  tabSelection: string[];
   /** Repositories with a refresh in progress (kept outside RepoTab so toggling it does not re-render the repo screen). */
   refreshing: Record<string, true>;
   toasts: Toast[];
@@ -131,6 +137,7 @@ export const useStore = create<State>((set) => ({
   tabs: [],
   active: null,
   repos: {},
+  tabSelection: [],
   refreshing: {},
   toasts: [],
   menu: null,
@@ -149,3 +156,12 @@ export const useStore = create<State>((set) => ({
 }));
 
 export const useActiveRepo = () => useStore((s) => (s.active ? s.repos[s.active] : undefined));
+
+export const isGroupId = (entry: string) => entry.startsWith("group:");
+
+/** Open group that shows `path` as one of its tabs. */
+export function openGroupOf(groups: RepoGroup[] | undefined, tabs: string[], path: string | null): RepoGroup | undefined {
+  return path ? groups?.find((g) => tabs.includes(g.id) && g.repos.includes(path)) : undefined;
+}
+
+export const useActiveGroup = () => useStore((s) => openGroupOf(s.settings?.groups, s.tabs, s.active));

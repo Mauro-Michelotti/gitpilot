@@ -6,8 +6,8 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { api, errorText } from "./api";
 import { resolveLang, setLang, t } from "./i18n";
-import { emptyTab, useStore, type MenuItem, type PromptSpec, type PromptValues, type Selection } from "./store";
-import type { GitFlowKind, GraphResult, OpOutcome, RepoOverview, Settings } from "./types";
+import { emptyTab, isGroupId, openGroupOf, useStore, type MenuItem, type PromptSpec, type PromptValues, type RepoTab, type Selection } from "./store";
+import type { GitFlowKind, GraphResult, OpOutcome, RepoGroup, RepoOverview, Settings } from "./types";
 
 const S = () => useStore.getState();
 
@@ -110,11 +110,13 @@ export async function boot() {
   S().set({ info, settings, accounts });
   applyTheme(settings.theme);
   for (const p of settings.openTabs) {
-    await openRepo(p, { activate: false, quiet: true, persist: false });
+    if (isGroupId(p)) await openGroup(p, { activate: false, persist: false });
+    else await openRepo(p, { activate: false, quiet: true, persist: false });
   }
-  const active = settings.activeTab && S().tabs.includes(settings.activeTab) ? settings.activeTab : (S().tabs[0] ?? null);
-  // Restored tabs were just loaded by openRepo: no need to refresh the active one again.
-  activate(active);
+  const first = S().tabs[0];
+  const active = settings.activeTab && S().repos[settings.activeTab] ? settings.activeTab : first ? repoOfTab(first) : null;
+  // Restored tabs were just loaded: no need to refresh the active one again.
+  commitTabs({ active });
 
   const win = getCurrentWindow();
   win.onFocusChanged(({ payload: focused }) => {
@@ -123,25 +125,103 @@ export async function boot() {
   });
 }
 
-// ---------------------------------------------------------------- tabs
+// ---------------------------------------------------------------- tabs & groups
+// `tabs` lists the top-level tabs: repository paths and group ids. The repositories of an
+// open group are in `repos` but not in `tabs`; `active` is always the repository on screen.
+
+const groups = () => S().settings?.groups ?? [];
+const findGroup = (id: string) => groups().find((g) => g.id === id);
+/** Group the repository belongs to, open or not. */
+const groupOfRepo = (path: string) => groups().find((g) => g.repos.includes(path));
+const graphLimit = () => S().settings?.graphLimit ?? 2000;
+
+/** Top-level tab showing the repository: its open group, or the repository itself. */
+export function topTabOf(path: string) {
+  return openGroupOf(groups(), S().tabs, path)?.id ?? path;
+}
+
+/** Repository to show for a top-level tab: for a group, its last active tab. */
+export function repoOfTab(entry: string, gs = groups()) {
+  const g = isGroupId(entry) ? gs.find((x) => x.id === entry) : undefined;
+  if (!g) return entry;
+  return g.activeRepo && g.repos.includes(g.activeRepo) ? g.activeRepo : (g.repos[0] ?? null);
+}
+
+/** Drop `paths` from the groups (a repository belongs to one group at most); empty groups disappear. */
+function withoutRepos(gs: RepoGroup[], paths: string[]): RepoGroup[] {
+  return gs
+    .map((g) => {
+      if (!g.repos.some((p) => paths.includes(p))) return g;
+      const repos = g.repos.filter((p) => !paths.includes(p));
+      return { ...g, repos, activeRepo: g.activeRepo && repos.includes(g.activeRepo) ? g.activeRepo : (repos[0] ?? null) };
+    })
+    .filter((g) => g.repos.length > 0);
+}
+
+/** Missing on disk (or not a repository any more): the tab only shows the error. */
+const isBroken = (path: string) => {
+  const r = S().repos[path];
+  return !!r && !!r.error && !r.overview;
+};
+
+/**
+ * Apply a change to tabs, open repositories, groups and active repository, then save them
+ * all with a single write. An active repository that is no longer open falls back to the tab
+ * at `fallbackIndex`.
+ */
+function commitTabs(next: { tabs?: string[]; repos?: Record<string, RepoTab>; groups?: RepoGroup[]; active?: string | null; fallbackIndex?: number }) {
+  const st = S();
+  let gs = next.groups ?? groups();
+  const tabs = (next.tabs ?? st.tabs).filter((e) => !isGroupId(e) || gs.some((g) => g.id === e));
+  const repos = next.repos ?? st.repos;
+  let active = next.active !== undefined ? next.active : st.active;
+  if (active && !repos[active]) {
+    const entry = tabs[Math.min(next.fallbackIndex ?? 0, tabs.length - 1)];
+    active = entry ? repoOfTab(entry, gs) : null;
+  }
+  const g = openGroupOf(gs, tabs, active);
+  if (g && g.activeRepo !== active) gs = gs.map((x) => (x === g ? { ...x, activeRepo: active } : x));
+  S().set({ tabs, repos, active, tabSelection: st.tabSelection.filter((p) => tabs.includes(p)) });
+  saveSettings({ openTabs: tabs, activeTab: active, groups: gs });
+  const name = active ? (repos[active]?.name ?? "") : "";
+  getCurrentWindow()
+    .setTitle(active ? `${g ? `${g.name} › ` : ""}${name} — GitPilot` : "GitPilot")
+    .catch(() => {});
+}
+
+/** The backend updated the recent list while opening repositories: merge it into our copy. */
+async function mergeRecent() {
+  const fresh = await api.settingsGet();
+  if (S().settings) S().set({ settings: { ...S().settings!, recent: fresh.recent } });
+}
+
+function loadRepo(path: string) {
+  loadPullRequests(path, true);
+  return refresh(path, { full: true });
+}
 
 export async function openRepo(path: string, opts: { activate?: boolean; quiet?: boolean; persist?: boolean } = {}) {
   try {
     const root = await api.repoOpen(path);
+    // A repository of a group opens with its group.
+    const g = groupOfRepo(root);
+    if (g) {
+      await mergeRecent();
+      await openGroup(g.id, { repo: opts.activate === false ? undefined : root, activate: opts.activate, persist: opts.persist });
+      return root;
+    }
     const st = S();
-    if (!st.repos[root]) {
+    const fresh = !st.repos[root];
+    if (fresh) {
       S().set({
-        repos: { ...st.repos, [root]: emptyTab(root, st.settings?.graphLimit ?? 2000) },
+        repos: { ...st.repos, [root]: emptyTab(root, graphLimit()) },
         tabs: [...st.tabs, root],
       });
     }
-    // The backend updated the recent list: merge it into our copy.
-    const fresh = await api.settingsGet();
-    if (S().settings) S().set({ settings: { ...S().settings!, recent: fresh.recent } });
+    await mergeRecent();
     if (opts.activate !== false) S().set({ active: root });
-    if (opts.persist !== false) persistTabs();
-    await refresh(root, { full: true });
-    loadPullRequests(root, true);
+    if (opts.persist !== false) commitTabs({});
+    await loadRepo(root);
     return root;
   } catch (e) {
     if (!opts.quiet) toast("error", errorText(e));
@@ -149,35 +229,232 @@ export async function openRepo(path: string, opts: { activate?: boolean; quiet?:
   }
 }
 
-export function closeTab(path: string) {
+/**
+ * Open a group with all its repositories (those already open on their own move into it).
+ * A repository that cannot be opened stays as a tab showing the error.
+ */
+export async function openGroup(id: string, opts: { repo?: string; activate?: boolean; persist?: boolean } = {}) {
+  const g = findGroup(id);
+  if (!g) return;
   const st = S();
-  const idx = st.tabs.indexOf(path);
-  const tabs = st.tabs.filter((t) => t !== path);
+  const target = opts.repo && g.repos.includes(opts.repo) ? opts.repo : repoOfTab(id);
+  if (st.tabs.includes(id)) {
+    if (opts.activate !== false && target) setActive(target);
+    return;
+  }
+  const toLoad = g.repos.filter((p) => !st.repos[p]);
   const repos = { ...st.repos };
-  delete repos[path];
-  let active = st.active;
-  if (active === path) active = tabs[Math.min(idx, tabs.length - 1)] ?? null;
-  S().set({ tabs, repos, active });
-  persistTabs();
+  for (const p of toLoad) repos[p] = emptyTab(p, graphLimit());
+  // The group takes the place of the first of its repositories already open, or goes last.
+  const first = st.tabs.findIndex((e) => g.repos.includes(e));
+  const tabs = st.tabs.filter((e) => !g.repos.includes(e));
+  tabs.splice(first < 0 ? tabs.length : first, 0, id);
+  S().set({ tabs, repos });
+  if (opts.activate !== false) S().set({ active: target });
+  if (opts.persist !== false) commitTabs({});
+  await Promise.all(
+    toLoad.map((p) =>
+      api.repoOpen(p).then(
+        () => loadRepo(p),
+        (e) => S().patchRepo(p, { loading: false, error: errorText(e) }),
+      ),
+    ),
+  );
+  await mergeRecent().catch(() => {});
+}
+
+/** Close a top-level tab: a repository, or a group with all its repositories. */
+export function closeTab(entry: string) {
+  entry = topTabOf(entry);
+  const st = S();
+  const idx = st.tabs.indexOf(entry);
+  if (idx < 0) return;
+  const members = isGroupId(entry) ? (findGroup(entry)?.repos ?? []) : [entry];
+  const repos = { ...st.repos };
+  for (const p of members) delete repos[p];
+  commitTabs({ tabs: st.tabs.filter((e) => e !== entry), repos, fallbackIndex: idx });
 }
 
 /** Switch tab and reload the repository, so changes made outside GitPilot show up right away. */
 export function setActive(path: string | null) {
-  activate(path);
+  commitTabs({ active: path });
   if (path) refresh(path, { full: true });
 }
 
-function activate(path: string | null) {
-  S().set({ active: path });
-  persistTabs();
-  getCurrentWindow()
-    .setTitle(path ? `${S().repos[path]?.name ?? ""} — GitPilot` : "GitPilot")
-    .catch(() => {});
+/** Ctrl+Tab / Ctrl+Shift+Tab: next or previous top-level tab. */
+export function cycleTab(dir: 1 | -1) {
+  const { tabs, active } = S();
+  if (!tabs.length) return;
+  const idx = active ? tabs.indexOf(topTabOf(active)) : -1;
+  const next = tabs[idx < 0 ? (dir > 0 ? 0 : tabs.length - 1) : (idx + dir + tabs.length) % tabs.length];
+  setActive(repoOfTab(next));
 }
 
-function persistTabs() {
+/** Ctrl+PageDown / Ctrl+PageUp: next or previous tab of the active group. */
+export function cycleGroupTab(dir: 1 | -1) {
   const { tabs, active } = S();
-  saveSettings({ openTabs: tabs, activeTab: active });
+  const g = openGroupOf(groups(), tabs, active);
+  if (!g || !active || g.repos.length < 2) return;
+  const idx = g.repos.indexOf(active);
+  setActive(g.repos[(idx + dir + g.repos.length) % g.repos.length]);
+}
+
+/** Ctrl/Cmd+click on a repository tab: add it to (or remove it from) the selection to group. */
+export function toggleTabSelection(path: string) {
+  const { tabSelection, active, tabs } = S();
+  // The tab on screen is part of the selection from the first Ctrl+click on.
+  let sel = !tabSelection.length && active && active !== path && tabs.includes(active) ? [active] : tabSelection;
+  sel = sel.includes(path) ? sel.filter((p) => p !== path) : [...sel, path];
+  S().set({ tabSelection: sel });
+}
+
+export function clearTabSelection() {
+  if (S().tabSelection.length) S().set({ tabSelection: [] });
+}
+
+/** Longest common prefix of the names, without trailing separators: "ipick-be", "ipick-fe" → "ipick". */
+function suggestGroupName(names: string[]) {
+  if (names.length < 2) return "";
+  let prefix = names[0];
+  for (const n of names) while (!n.startsWith(prefix)) prefix = prefix.slice(0, -1);
+  prefix = prefix.replace(/[-_.\s]+$/, "");
+  return prefix.length >= 2 ? prefix : "";
+}
+
+/** Group repository tabs (in tab order) under a new name: the group takes the place of the first one. */
+export async function groupTabs(paths: string[]) {
+  const st = S();
+  const members = st.tabs.filter((e) => !isGroupId(e) && paths.includes(e));
+  if (!members.length) return;
+  const names = members.map((p) => st.repos[p]?.name ?? p);
+  const initial = st.active && members.includes(st.active) ? st.active : members[0];
+  const v = await prompt({
+    title: t("groups.create.title"),
+    message: t("groups.create.selected", { count: members.length, names: names.join(", ") }),
+    fields: [
+      { name: "name", label: t("groups.create.name"), value: suggestGroupName(names), required: true, help: t("groups.create.help") },
+      ...(members.length > 1
+        ? [{ name: "active", label: t("groups.create.initial"), type: "select" as const, value: initial, options: members.map((p, i) => ({ value: p, label: names[i] })) }]
+        : []),
+    ],
+    confirmLabel: t("groups.create.confirm"),
+  });
+  if (!v) return;
+  const cur = S();
+  const open = members.filter((p) => cur.tabs.includes(p));
+  if (!open.length) return;
+  const id = `group:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const chosen = String(v.active || initial);
+  const active = open.includes(chosen) ? chosen : open[0];
+  const group: RepoGroup = { id, name: String(v.name).trim(), repos: open, activeRepo: active };
+  const first = cur.tabs.indexOf(open[0]);
+  const tabs = cur.tabs.filter((e) => !open.includes(e));
+  tabs.splice(first, 0, id);
+  S().set({ tabSelection: [] });
+  setActiveIn({ tabs, groups: [...withoutRepos(groups(), open), group] }, active);
+}
+
+/** commitTabs + reload of the repository that ends up on screen, when it changes. */
+function setActiveIn(next: Parameters<typeof commitTabs>[0], path: string | null) {
+  const before = S().active;
+  commitTabs({ ...next, active: path });
+  const after = S().active;
+  if (after && after !== before) refresh(after, { full: true });
+}
+
+export async function renameGroup(id: string) {
+  const g = findGroup(id);
+  if (!g) return;
+  const v = await prompt({
+    title: t("groups.rename.title"),
+    fields: [{ name: "name", label: t("groups.create.name"), value: g.name, required: true }],
+    confirmLabel: t("groups.rename.confirm"),
+  });
+  const name = v ? String(v.name).trim() : "";
+  if (!name) return;
+  commitTabs({ groups: groups().map((x) => (x.id === id ? { ...x, name } : x)) });
+}
+
+/** Add open repository tabs to a group: they become its tabs (and leave any other group). */
+export function addToGroup(id: string, paths: string[]) {
+  const g = findGroup(id);
+  const add = paths.filter((p) => !g?.repos.includes(p));
+  if (!g || !add.length || !S().tabs.includes(id)) return;
+  const gs = withoutRepos(groups(), add).map((x) => (x.id === id ? { ...x, repos: [...x.repos, ...add] } : x));
+  S().set({ tabSelection: [] });
+  commitTabs({ tabs: S().tabs.filter((e) => !add.includes(e)), groups: gs });
+}
+
+/** Pick a repository on disk and add it to the group. */
+export async function pickAndAddToGroup(id: string) {
+  const dir = await openDialog({ directory: true, title: t("groups.add.pickTitle") });
+  if (typeof dir !== "string") return;
+  try {
+    const root = await api.repoOpen(dir);
+    const g = findGroup(id);
+    if (!g) return;
+    if (g.repos.includes(root)) {
+      setActive(root);
+      return;
+    }
+    const st = S();
+    const fresh = !st.repos[root];
+    const repos = fresh ? { ...st.repos, [root]: emptyTab(root, graphLimit()) } : st.repos;
+    const gs = withoutRepos(groups(), [root]).map((x) => (x.id === id ? { ...x, repos: [...x.repos, root] } : x));
+    await mergeRecent();
+    setActiveIn({ tabs: S().tabs.filter((e) => e !== root), repos, groups: gs }, root);
+    if (fresh) loadPullRequests(root, true);
+  } catch (e) {
+    toast("error", errorText(e));
+  }
+}
+
+/**
+ * Take a repository out of its group: it stays open as a tab of its own next to the group,
+ * unless it can no longer be opened. The last repository dissolves the group.
+ */
+export function removeFromGroup(path: string) {
+  const g = groupOfRepo(path);
+  if (!g) return;
+  const st = S();
+  const gs = withoutRepos(groups(), [path]);
+  const idx = st.tabs.indexOf(g.id);
+  if (idx < 0) {
+    commitTabs({ groups: gs });
+    return;
+  }
+  const tabs = [...st.tabs];
+  const stays = gs.some((x) => x.id === g.id);
+  let repos = st.repos;
+  if (isBroken(path)) {
+    repos = { ...repos };
+    delete repos[path];
+  } else {
+    tabs.splice(idx + 1, 0, path);
+  }
+  if (!stays) tabs.splice(idx, 1);
+  const rest = gs.find((x) => x.id === g.id)?.repos ?? [];
+  // Without a group tab left to show, commitTabs falls back to the tab now at `idx`.
+  setActiveIn({ tabs, repos, groups: gs, fallbackIndex: idx }, st.active && repos[st.active] ? st.active : (rest[0] ?? st.active));
+}
+
+/** Delete a group: its open repositories go back to tabs of their own. */
+export async function dissolveGroup(id: string) {
+  const g = findGroup(id);
+  if (!g) return;
+  const st = S();
+  const idx = st.tabs.indexOf(id);
+  const ok = await confirm(
+    t("groups.dissolve.title", { name: g.name }),
+    t(idx < 0 ? "groups.dissolve.messageClosed" : "groups.dissolve.message"),
+    { confirmLabel: t("groups.dissolve.confirm") },
+  );
+  if (!ok) return;
+  const cur = S();
+  const at = cur.tabs.indexOf(id);
+  const tabs = [...cur.tabs];
+  if (at >= 0) tabs.splice(at, 1, ...g.repos.filter((p) => cur.repos[p]));
+  commitTabs({ tabs, groups: groups().filter((x) => x.id !== id) });
 }
 
 export async function pickAndOpenRepo() {

@@ -4,6 +4,7 @@ import { useStore } from "./store";
 import common from "./locales/common";
 import actions from "./locales/actions";
 import dialogs from "./locales/dialogs";
+import groups from "./locales/groups";
 import repo from "./locales/repo";
 import type { Msg } from "./locales/define";
 
@@ -12,8 +13,8 @@ export { messages, type Msg } from "./locales/define";
 export type Lang = "it" | "en";
 export type LangSetting = "system" | Lang;
 
-const IT = { ...common.it, ...actions.it, ...dialogs.it, ...repo.it };
-const EN: Record<keyof typeof IT, Msg> = { ...common.en, ...actions.en, ...dialogs.en, ...repo.en };
+const IT = { ...common.it, ...actions.it, ...dialogs.it, ...groups.it, ...repo.it };
+const EN: Record<keyof typeof IT, Msg> = { ...common.en, ...actions.en, ...dialogs.en, ...groups.en, ...repo.en };
 export type MsgKey = keyof typeof IT;
 const DICTS: Record<Lang, Record<MsgKey, Msg>> = { it: IT, en: EN };
 

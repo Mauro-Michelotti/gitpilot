@@ -19,11 +19,17 @@ import {
   Flag,
   Inbox,
   Link,
+  Layers,
+  FolderOpen,
+  FolderMinus,
+  Plus,
+  Ungroup,
+  X,
 } from "lucide-react";
 import * as A from "./actions";
 import { api } from "./api";
 import { t } from "./i18n";
-import type { MenuItem } from "./store";
+import { isGroupId, useStore, type MenuItem } from "./store";
 import type { GitFlowKind, PullRequest, RepoOverview } from "./types";
 
 const sep: MenuItem = { separator: true };
@@ -159,4 +165,53 @@ export function prMenu(path: string, o: RepoOverview, pr: PullRequest): MenuItem
     sep,
     { label: t("menu.pr.copyLink"), icon: <Copy size={I} />, action: () => A.copy(pr.webUrl) },
   ];
+}
+
+// ---------------------------------------------------------------- tabs & groups
+
+const store = () => useStore.getState();
+const openGroups = () => (store().settings?.groups ?? []).filter((g) => store().tabs.includes(g.id));
+const tabName = (path: string) => store().repos[path]?.name ?? path;
+
+/** Repository tab: group it (with the other selected tabs) or add it to an open group. */
+export function repoTabMenu(path: string): MenuItem[] {
+  const st = store();
+  const sel = st.tabSelection.length > 1 && st.tabSelection.includes(path) ? st.tabSelection : [path];
+  return [
+    {
+      label: sel.length > 1 ? t("groups.menu.groupSelected", { count: sel.length }) : t("groups.menu.group"),
+      icon: <Layers size={I} />,
+      action: () => A.groupTabs(sel),
+    },
+    ...openGroups().map((g) => ({ label: t("groups.menu.addTo", { name: g.name }), icon: <Plus size={I} />, action: () => A.addToGroup(g.id, sel) })),
+    sep,
+    { label: t("app.closeTab"), icon: <X size={I} />, action: () => A.closeTab(path) },
+  ];
+}
+
+/** "+" of the group bar: the open repository tabs, or one picked on disk. */
+export function addToGroupMenu(id: string): MenuItem[] {
+  const singles = store().tabs.filter((e) => !isGroupId(e));
+  return [
+    ...singles.map((p) => ({ label: t("groups.menu.add", { name: tabName(p) }), icon: <Plus size={I} />, action: () => A.addToGroup(id, [p]) })),
+    ...(singles.length ? [sep] : []),
+    { label: t("groups.menu.addFromDisk"), icon: <FolderOpen size={I} />, action: () => A.pickAndAddToGroup(id) },
+  ];
+}
+
+/** Group tab and "…" of the group bar. */
+export function groupMenu(id: string): MenuItem[] {
+  return [
+    { label: t("groups.menu.rename"), icon: <Pencil size={I} />, action: () => A.renameGroup(id) },
+    sep,
+    ...addToGroupMenu(id),
+    sep,
+    { label: t("groups.menu.dissolve"), icon: <Ungroup size={I} />, action: () => A.dissolveGroup(id) },
+    { label: t("groups.menu.close"), icon: <X size={I} />, action: () => A.closeTab(id) },
+  ];
+}
+
+/** Second-level tab. */
+export function groupRepoMenu(path: string): MenuItem[] {
+  return [{ label: t("groups.menu.remove"), icon: <FolderMinus size={I} />, action: () => A.removeFromGroup(path) }];
 }
