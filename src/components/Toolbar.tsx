@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, type DependencyList, type ReactNode, type RefObject } from "react";
 import {
   Archive,
   ArrowDownToLine,
@@ -25,6 +25,7 @@ import { useT } from "../i18n";
 import { addToGroupMenu, groupMenu, groupRepoMenu, repoTabMenu } from "../menus";
 import { useActiveGroup, useStore, type MenuItem, type RepoTab } from "../store";
 import { Logo } from "./icons";
+import { useTabDrag } from "./tabDrag";
 
 function TbButton({
   icon,
@@ -60,6 +61,14 @@ function TbButton({
   );
 }
 
+/** Keep the active tab visible in a bar that scrolls (many tabs, a tab moved from the keyboard). */
+function useScrollActiveIntoView(bar: RefObject<HTMLElement | null>, selector: string, deps: DependencyList) {
+  useEffect(() => {
+    bar.current?.querySelector(selector)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+}
+
 export function TabBar() {
   const tabs = useStore((s) => s.tabs);
   const active = useStore((s) => s.active);
@@ -67,30 +76,36 @@ export function TabBar() {
   const selection = useStore((s) => s.tabSelection);
   const groups = useStore((s) => s.settings?.groups);
   const t = useT();
+  const dnd = useTabDrag(A.moveTab);
+  useScrollActiveIntoView(dnd.barRef, ".tab.active", [active, tabs]);
   return (
-    <div className="tabbar">
+    <div className="tabbar" ref={dnd.barRef}>
       <div className="tabbar-logo" onClick={() => A.setActive(null)} title="Home">
         <Logo size={20} />
       </div>
       {tabs.map((entry) => {
         const g = groups?.find((x) => x.id === entry);
         const isActive = g ? !!active && g.repos.includes(active) : entry === active;
-        const cls = `tab${isActive ? " active" : ""}${selection.includes(entry) ? " selected" : ""}${g ? " tab-group" : ""}`;
+        const cls = `tab${isActive ? " active" : ""}${selection.includes(entry) ? " selected" : ""}${g ? " tab-group" : ""}${dnd.dragging === entry ? " dragging" : ""}`;
         return (
           <div
             key={entry}
+            data-tab={entry}
             className={cls}
             onMouseDown={(e) => {
               if (e.button === 1) {
                 e.preventDefault();
                 A.closeTab(entry);
-              } else if (e.button === 0) {
+              }
+            }}
+            onPointerDown={(e) =>
+              dnd.press(e, entry, () => {
                 if (!g && (e.ctrlKey || e.metaKey)) return A.toggleTabSelection(entry);
                 A.clearTabSelection();
                 A.setActive(A.repoOfTab(entry));
-              }
-            }}
-            onContextMenu={(e) => A.showMenu(e, g ? groupMenu(entry) : repoTabMenu(entry))}
+              })
+            }
+            onContextMenu={(e) => A.showMenu(e, g ? groupMenu(entry, true) : repoTabMenu(entry))}
             title={g ? g.repos.map((p) => repos[p]?.name ?? p).join(", ") : `${entry}\n${t("groups.tab.select")}`}
           >
             {g && <Layers size={13} className="tab-group-icon" />}
@@ -98,6 +113,7 @@ export function TabBar() {
             {g && <span className="tab-count">{g.repos.length}</span>}
             <button
               className="tab-close"
+              onPointerDown={(e) => e.stopPropagation()}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
@@ -113,6 +129,7 @@ export function TabBar() {
       <button className={`tab tab-new${active === null ? " active" : ""}`} onClick={() => A.setActive(null)} title={t("toolbar.newTab")}>
         <Plus size={14} />
       </button>
+      {dnd.dropX !== null && <div className="tab-drop" style={{ left: dnd.dropX }} />}
     </div>
   );
 }
@@ -123,9 +140,12 @@ export function GroupBar() {
   const active = useStore((s) => s.active);
   const repos = useStore((s) => s.repos);
   const t = useT();
+  const id = g?.id;
+  const dnd = useTabDrag((path, to) => id && A.moveGroupTab(id, path, to));
+  useScrollActiveIntoView(dnd.barRef, ".subtab.active", [active, g?.repos]);
   if (!g) return null;
   return (
-    <div className="groupbar">
+    <div className="groupbar" ref={dnd.barRef}>
       <button className="groupbar-name" onClick={(e) => A.showMenu(e, groupMenu(g.id))} title={t("groups.bar.options")}>
         <Layers size={14} />
         <span>{g.name}</span>
@@ -141,8 +161,9 @@ export function GroupBar() {
         return (
           <div
             key={p}
-            className={`subtab${p === active ? " active" : ""}${broken ? " broken" : ""}`}
-            onMouseDown={(e) => e.button === 0 && A.setActive(p)}
+            data-tab={p}
+            className={`subtab${p === active ? " active" : ""}${broken ? " broken" : ""}${dnd.dragging === p ? " dragging" : ""}`}
+            onPointerDown={(e) => dnd.press(e, p, () => A.setActive(p))}
             onContextMenu={(e) => A.showMenu(e, groupRepoMenu(p))}
             title={broken ? `${p}\n${r?.error}` : p}
           >
@@ -160,6 +181,7 @@ export function GroupBar() {
       <button className="icon-btn groupbar-more" onClick={(e) => A.showMenu(e, groupMenu(g.id))} title={t("groups.bar.options")}>
         <Ellipsis size={16} />
       </button>
+      {dnd.dropX !== null && <div className="tab-drop" style={{ left: dnd.dropX }} />}
     </div>
   );
 }

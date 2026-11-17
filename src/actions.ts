@@ -307,6 +307,38 @@ export function cycleGroupTab(dir: 1 | -1) {
   setActive(g.repos[(idx + dir + g.repos.length) % g.repos.length]);
 }
 
+/** `list` with `item` moved to index `to` (clamped to the list); null when nothing moves. */
+function moved<T>(list: T[], item: T, to: number): T[] | null {
+  const from = list.indexOf(item);
+  to = Math.max(0, Math.min(list.length - 1, to));
+  if (from < 0 || from === to) return null;
+  const next = list.filter((x) => x !== item);
+  next.splice(to, 0, item);
+  return next;
+}
+
+/** Move a top-level tab (a repository, or a group with all its tabs) to position `to`. */
+export function moveTab(entry: string, to: number) {
+  const tabs = moved(S().tabs, entry, to);
+  if (tabs) commitTabs({ tabs });
+}
+
+/** Move a tab of a group to position `to` among the group's tabs. */
+export function moveGroupTab(id: string, path: string, to: number) {
+  const g = findGroup(id);
+  const repos = g && moved(g.repos, path, to);
+  if (repos) commitTabs({ groups: groups().map((x) => (x.id === id ? { ...x, repos } : x)) });
+}
+
+/** Ctrl+Shift+PageUp/PageDown: move the tab on screen one place; inside a group, its second-level tab. */
+export function moveActiveTab(dir: 1 | -1) {
+  const { tabs, active } = S();
+  if (!active) return;
+  const g = openGroupOf(groups(), tabs, active);
+  if (g) moveGroupTab(g.id, active, g.repos.indexOf(active) + dir);
+  else moveTab(active, tabs.indexOf(active) + dir);
+}
+
 /** Ctrl/Cmd+click on a repository tab: add it to (or remove it from) the selection to group. */
 export function toggleTabSelection(path: string) {
   const { tabSelection, active, tabs } = S();
