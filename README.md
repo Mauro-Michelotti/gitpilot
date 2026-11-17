@@ -10,6 +10,8 @@ GPG, LFS e `includeIf` funzionano esattamente come da terminale.
 ## Funzioni
 
 - **Repository**: apri, clona (da URL o dalla lista dei tuoi repo GitHub/GitLab), crea; schede multiple, recenti.
+  Le schede si riordinano trascinandole (anche i gruppi, interi, e le sotto-schede dentro il gruppo),
+  dal menu contestuale (*Sposta a sinistra/destra*) o con `Ctrl+Shift+PagSu/PagGiù`; l'ordine resta salvato.
 - **Gruppi di repository**: più repo dello stesso progetto (es. backend, frontend, mobile) in una sola
   scheda con sotto-schede. `Ctrl+clic` sulle schede per selezionarle, poi clic destro → *Raggruppa…*;
   dal menu del gruppo rinomina, aggiungi/togli repo, sciogli. Chiudere un gruppo chiude tutti i suoi
@@ -139,5 +141,6 @@ Le novità di ogni versione sono in [CHANGELOG.md](CHANGELOG.md).
 
 `F5`/`Ctrl+R` aggiorna · `Ctrl+O` apri · `Ctrl+W` chiudi scheda (o il gruppo) · `Ctrl+Invio` commit ·
 `Ctrl+Tab`/`Ctrl+Shift+Tab` scheda successiva/precedente · `Ctrl+PagGiù`/`Ctrl+PagSu` sotto-scheda del gruppo ·
+`Ctrl+Shift+PagSu`/`Ctrl+Shift+PagGiù` sposta la scheda (dentro un gruppo, la sotto-scheda) ·
 `↑/↓` naviga il grafo · `Esc` chiude diff/dialoghi · `Ctrl +/-/0` zoom (su macOS `⌘` al posto di `Ctrl`,
 tranne `Ctrl+Tab`)

@@ -1,6 +1,8 @@
 // Context-menu builders.
 import {
   ArrowDownToLine,
+  ArrowLeft,
+  ArrowRight,
   ArrowUpFromLine,
   Copy,
   ExternalLink,
@@ -185,6 +187,20 @@ const store = () => useStore.getState();
 const openGroups = () => (store().settings?.groups ?? []).filter((g) => store().tabs.includes(g.id));
 const tabName = (path: string) => store().repos[path]?.name ?? path;
 
+/** "Move left" / "Move right" for the tab at `index` of `count` tabs. */
+function moveItems(index: number, count: number, move: (to: number) => void): MenuItem[] {
+  return [
+    { label: t("tabs.moveLeft"), icon: <ArrowLeft size={I} />, action: () => move(index - 1), disabled: index <= 0 },
+    { label: t("tabs.moveRight"), icon: <ArrowRight size={I} />, action: () => move(index + 1), disabled: index < 0 || index >= count - 1 },
+  ];
+}
+
+/** Top-level tab (repository or group): move it along the tab bar. */
+function moveTabItems(entry: string): MenuItem[] {
+  const tabs = store().tabs;
+  return moveItems(tabs.indexOf(entry), tabs.length, (to) => A.moveTab(entry, to));
+}
+
 /** Repository tab: group it (with the other selected tabs) or add it to an open group. */
 export function repoTabMenu(path: string): MenuItem[] {
   const st = store();
@@ -196,6 +212,8 @@ export function repoTabMenu(path: string): MenuItem[] {
       action: () => A.groupTabs(sel),
     },
     ...openGroups().map((g) => ({ label: t("groups.menu.addTo", { name: g.name }), icon: <Plus size={I} />, action: () => A.addToGroup(g.id, sel) })),
+    sep,
+    ...moveTabItems(path),
     sep,
     { label: t("app.closeTab"), icon: <X size={I} />, action: () => A.closeTab(path) },
   ];
@@ -211,19 +229,24 @@ export function addToGroupMenu(id: string): MenuItem[] {
   ];
 }
 
-/** Group tab and "…" of the group bar. */
-export function groupMenu(id: string): MenuItem[] {
+/** Group tab (`onTab`, with the items to move it) and "…" of the group bar. */
+export function groupMenu(id: string, onTab = false): MenuItem[] {
   return [
     { label: t("groups.menu.rename"), icon: <Pencil size={I} />, action: () => A.renameGroup(id) },
     sep,
     ...addToGroupMenu(id),
     sep,
+    ...(onTab ? [...moveTabItems(id), sep] : []),
     { label: t("groups.menu.dissolve"), icon: <Ungroup size={I} />, action: () => A.dissolveGroup(id) },
     { label: t("groups.menu.close"), icon: <X size={I} />, action: () => A.closeTab(id) },
   ];
 }
 
-/** Second-level tab. */
+/** Second-level tab: move it within the group, or take it out. */
 export function groupRepoMenu(path: string): MenuItem[] {
-  return [{ label: t("groups.menu.remove"), icon: <FolderMinus size={I} />, action: () => A.removeFromGroup(path) }];
+  const g = openGroups().find((x) => x.repos.includes(path));
+  return [
+    ...(g ? [...moveItems(g.repos.indexOf(path), g.repos.length, (to) => A.moveGroupTab(g.id, path, to)), sep] : []),
+    { label: t("groups.menu.remove"), icon: <FolderMinus size={I} />, action: () => A.removeFromGroup(path) },
+  ];
 }

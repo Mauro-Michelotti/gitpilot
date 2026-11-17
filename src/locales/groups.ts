@@ -1,4 +1,4 @@
-// Repository groups: one top-level tab with second-level tabs.
+// Repository groups (one top-level tab with second-level tabs) and tab order.
 import { messages } from "./define";
 
 export default messages(
@@ -35,6 +35,8 @@ export default messages(
     "groups.removeBroken": "Togli dal gruppo",
     "groups.count": { one: "1 repository", other: "{count} repository" },
     "groups.home.remove": "Sciogli il gruppo",
+    "tabs.moveLeft": "Sposta a sinistra",
+    "tabs.moveRight": "Sposta a destra",
   },
   {
     "groups.create.title": "New repository group",
@@ -69,5 +71,7 @@ export default messages(
     "groups.removeBroken": "Remove from group",
     "groups.count": { one: "1 repository", other: "{count} repositories" },
     "groups.home.remove": "Ungroup",
+    "tabs.moveLeft": "Move left",
+    "tabs.moveRight": "Move right",
   },
 );
