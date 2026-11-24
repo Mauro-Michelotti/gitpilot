@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.4.0] - 2026-11-17
+
+Confronto con la versione precedente: [v0.3.0...v0.4.0](../../compare/v0.3.0...v0.4.0). Comprende 1 commit e 2 merge.
+
+### Novità
+
+- Riordino delle schede ([#8](../../issues/8)): le schede dei repository, i gruppi interi e le
+  sotto-schede dentro un gruppo si spostano.
+  - Trascinandole: una barra indica dove andrà la scheda, vicino ai bordi la barra delle schede
+    scorre, `Esc` annulla. Il trascinamento parte dopo qualche pixel di movimento, quindi un clic
+    normale attiva la scheda come prima e durante il trascinamento la scheda attiva non cambia.
+  - Dal menu contestuale della scheda, del gruppo o della sotto-scheda: *Sposta a sinistra* e
+    *Sposta a destra*.
+  - Con `Ctrl+Shift+PagSu` / `Ctrl+Shift+PagGiù` (`⌘` su macOS): sposta di un posto la scheda
+    attiva o, dentro un gruppo, la sotto-scheda attiva. Arrivata in fondo si ferma, non riparte
+    dall'altro capo.
+  - Il nuovo ordine viene salvato subito e resta alla riapertura.
+
+### Documentazione
+
+- `README.md`: riordino delle schede nelle funzioni e nuova scorciatoia nell'elenco.
+
+<details>
+<summary>Elenco dei commit</summary>
+
+| Commit | Data | Autore | Messaggio |
+|--------|------|--------|-----------|
+| [`9ad03a47`](../../commit/9ad03a4705814fd2f57d2c0540ae9cba78515ff9) | 2026-11-17 | Mauro Michelotti | feat(tabs): riordina schede e sotto-schede trascinandole |
+
+</details>
+
 ## [0.3.0] - 2026-11-10
 
 Confronto con la versione precedente: [v0.2.0...v0.3.0](../../compare/v0.2.0...v0.3.0). Comprende 5 commit e 5 merge.
