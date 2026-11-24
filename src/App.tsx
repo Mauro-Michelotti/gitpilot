@@ -198,7 +198,9 @@ export default function App() {
         A.cycleTab(e.shiftKey ? -1 : 1);
       } else if (mod && (e.key === "PageDown" || e.key === "PageUp")) {
         e.preventDefault();
-        A.cycleGroupTab(e.key === "PageDown" ? 1 : -1);
+        const dir = e.key === "PageDown" ? 1 : -1;
+        if (e.shiftKey) A.moveActiveTab(dir);
+        else A.cycleGroupTab(dir);
       } else if (mod && (e.key === "=" || e.key === "+")) {
         e.preventDefault();
         zoom = Math.min(2, +(zoom + 0.1).toFixed(2));

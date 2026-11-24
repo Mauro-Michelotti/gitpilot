@@ -98,6 +98,10 @@ body.resizing,
 body.resizing * {
   cursor: col-resize !important;
 }
+body.tab-dragging,
+body.tab-dragging * {
+  cursor: grabbing !important;
+}
 input,
 textarea,
 select,
@@ -342,6 +346,7 @@ textarea {
 }
 
 .tabbar {
+  position: relative;
   display: flex;
   align-items: stretch;
   height: 36px;
@@ -437,9 +442,26 @@ textarea {
 .tab.active .tab-count {
   background: var(--bg-hover);
 }
+/* Dragging a tab (tab bar and group bar): the tab fades, a bar marks where it goes. */
+.tab.dragging,
+.subtab.dragging {
+  opacity: 0.45;
+}
+.tab-drop {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none;
+  z-index: 2;
+}
 
 /* ---------------------------------------------------------------- group bar (second-level tabs) */
 .groupbar {
+  position: relative;
   display: flex;
   align-items: stretch;
   height: 32px;
